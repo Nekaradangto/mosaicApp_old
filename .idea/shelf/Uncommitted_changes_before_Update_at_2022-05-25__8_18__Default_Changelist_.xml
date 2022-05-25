@@ -1,0 +1,99 @@
+<changelist name="Uncommitted_changes_before_Update_at_2022-05-25_오후_8_18_[Default_Changelist]" date="1653477498916" recycled="false" toDelete="true">
+  <option name="PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_2022-05-25_오후_8_18_[Default_Changelist]/shelved.patch" />
+  <option name="DESCRIPTION" value="Uncommitted changes before Update at 2022-05-25 오후 8:18 [Default Changelist]" />
+  <binary>
+    <option name="BEFORE_PATH" value="app/build/intermediates/merged_res/debug/layout_settings_style.xml.flat" />
+    <option name="AFTER_PATH" value="app/build/intermediates/merged_res/debug/layout_settings_style.xml.flat" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_2022-05-25_오후_8_18_[Default_Changelist]/layout_settings_style.xml.flat" />
+  </binary>
+  <binary>
+    <option name="BEFORE_PATH" value="app/build/intermediates/dex/debug/mergeExtDexDebug/classes.dex" />
+    <option name="AFTER_PATH" value="app/build/intermediates/dex/debug/mergeExtDexDebug/classes.dex" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_2022-05-25_오후_8_18_[Default_Changelist]/classes.dex" />
+  </binary>
+  <binary>
+    <option name="BEFORE_PATH" value=".gradle/7.2/executionHistory/executionHistory.lock" />
+    <option name="AFTER_PATH" value=".gradle/7.2/executionHistory/executionHistory.lock" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_2022-05-25_오후_8_18_[Default_Changelist]/executionHistory.lock" />
+  </binary>
+  <binary>
+    <option name="BEFORE_PATH" value="app/build/intermediates/merged_res/debug/layout_activity_chooser.xml.flat" />
+    <option name="AFTER_PATH" value="app/build/intermediates/merged_res/debug/layout_activity_chooser.xml.flat" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_2022-05-25_오후_8_18_[Default_Changelist]/layout_activity_chooser.xml.flat" />
+  </binary>
+  <binary>
+    <option name="BEFORE_PATH" value="app/build/intermediates/merged_res/debug/layout_activity_still_image.xml.flat" />
+    <option name="AFTER_PATH" value="app/build/intermediates/merged_res/debug/layout_activity_still_image.xml.flat" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_2022-05-25_오후_8_18_[Default_Changelist]/layout_activity_still_image.xml.flat" />
+  </binary>
+  <binary>
+    <option name="BEFORE_PATH" value="app/build/intermediates/processed_res/debug/out/resources-debug.ap_" />
+    <option name="AFTER_PATH" value="app/build/intermediates/processed_res/debug/out/resources-debug.ap_" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_2022-05-25_오후_8_18_[Default_Changelist]/resources-debug.ap_" />
+  </binary>
+  <binary>
+    <option name="BEFORE_PATH" value=".gradle/7.2/executionHistory/executionHistory.bin" />
+    <option name="AFTER_PATH" value=".gradle/7.2/executionHistory/executionHistory.bin" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_2022-05-25_오후_8_18_[Default_Changelist]/executionHistory.bin" />
+  </binary>
+  <binary>
+    <option name="BEFORE_PATH" value="app/build/intermediates/merged_res/debug/layout-land_activity_vision_camerax_live_preview.xml.flat" />
+    <option name="AFTER_PATH" value="app/build/intermediates/merged_res/debug/layout-land_activity_vision_camerax_live_preview.xml.flat" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_2022-05-25_오후_8_18_[Default_Changelist]/layout-land_activity_vision_camerax_live_preview.xml.flat" />
+  </binary>
+  <binary>
+    <option name="BEFORE_PATH" value=".gradle/7.2/fileHashes/fileHashes.bin" />
+    <option name="AFTER_PATH" value=".gradle/7.2/fileHashes/fileHashes.bin" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_2022-05-25_오후_8_18_[Default_Changelist]/fileHashes.bin" />
+  </binary>
+  <binary>
+    <option name="BEFORE_PATH" value="app/build/intermediates/merged_res/debug/layout-land_activity_vision_cameraxsource_demo.xml.flat" />
+    <option name="AFTER_PATH" value="app/build/intermediates/merged_res/debug/layout-land_activity_vision_cameraxsource_demo.xml.flat" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_2022-05-25_오후_8_18_[Default_Changelist]/layout-land_activity_vision_cameraxsource_demo.xml.flat" />
+  </binary>
+  <binary>
+    <option name="BEFORE_PATH" value="app/build/intermediates/merged_res/debug/values_values.arsc.flat" />
+    <option name="AFTER_PATH" value="app/build/intermediates/merged_res/debug/values_values.arsc.flat" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_2022-05-25_오후_8_18_[Default_Changelist]/values_values.arsc.flat" />
+  </binary>
+  <binary>
+    <option name="BEFORE_PATH" value="app/build/intermediates/merged_res/debug/layout_activity_vision_live_preview.xml.flat" />
+    <option name="AFTER_PATH" value="app/build/intermediates/merged_res/debug/layout_activity_vision_live_preview.xml.flat" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_2022-05-25_오후_8_18_[Default_Changelist]/layout_activity_vision_live_preview.xml.flat" />
+  </binary>
+  <binary>
+    <option name="BEFORE_PATH" value="app/build/intermediates/merged_res/debug/layout_activity_vision_cameraxsource_demo.xml.flat" />
+    <option name="AFTER_PATH" value="app/build/intermediates/merged_res/debug/layout_activity_vision_cameraxsource_demo.xml.flat" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_2022-05-25_오후_8_18_[Default_Changelist]/layout_activity_vision_cameraxsource_demo.xml.flat" />
+  </binary>
+  <binary>
+    <option name="BEFORE_PATH" value="app/build/intermediates/merged_res/debug/layout_spinner_style.xml.flat" />
+    <option name="AFTER_PATH" value="app/build/intermediates/merged_res/debug/layout_spinner_style.xml.flat" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_2022-05-25_오후_8_18_[Default_Changelist]/layout_spinner_style.xml.flat" />
+  </binary>
+  <binary>
+    <option name="BEFORE_PATH" value="app/build/intermediates/dex/debug/mergeExtDexDebug/classes2.dex" />
+    <option name="AFTER_PATH" value="app/build/intermediates/dex/debug/mergeExtDexDebug/classes2.dex" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_2022-05-25_오후_8_18_[Default_Changelist]/classes2.dex" />
+  </binary>
+  <binary>
+    <option name="BEFORE_PATH" value="app/build/intermediates/merged_res/debug/layout_activity_settings.xml.flat" />
+    <option name="AFTER_PATH" value="app/build/intermediates/merged_res/debug/layout_activity_settings.xml.flat" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_2022-05-25_오후_8_18_[Default_Changelist]/layout_activity_settings.xml.flat" />
+  </binary>
+  <binary>
+    <option name="BEFORE_PATH" value="app/build/intermediates/merged_res/debug/layout_toggle_style.xml.flat" />
+    <option name="AFTER_PATH" value="app/build/intermediates/merged_res/debug/layout_toggle_style.xml.flat" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_2022-05-25_오후_8_18_[Default_Changelist]/layout_toggle_style.xml.flat" />
+  </binary>
+  <binary>
+    <option name="BEFORE_PATH" value="app/build/intermediates/merged_res/debug/layout_activity_vision_camerax_live_preview.xml.flat" />
+    <option name="AFTER_PATH" value="app/build/intermediates/merged_res/debug/layout_activity_vision_camerax_live_preview.xml.flat" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_2022-05-25_오후_8_18_[Default_Changelist]/layout_activity_vision_camerax_live_preview.xml.flat" />
+  </binary>
+  <binary>
+    <option name="BEFORE_PATH" value="app/build/intermediates/merged_res/debug/layout-land_activity_vision_live_preview.xml.flat" />
+    <option name="AFTER_PATH" value="app/build/intermediates/merged_res/debug/layout-land_activity_vision_live_preview.xml.flat" />
+    <option name="SHELVED_PATH" value="$PROJECT_DIR$/.idea/shelf/Uncommitted_changes_before_Update_at_2022-05-25_오후_8_18_[Default_Changelist]/layout-land_activity_vision_live_preview.xml.flat" />
+  </binary>
+</changelist>

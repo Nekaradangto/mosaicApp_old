@@ -1,0 +1,1038 @@
+Index: app/src/main/java/com/google/mlkit/vision/demo/kotlin/CameraXLivePreviewActivity.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>/*\r\n * Copyright 2020 Google LLC. All rights reserved.\r\n *\r\n * Licensed under the Apache License, Version 2.0 (the \"License\");\r\n * you may not use this file except in compliance with the License.\r\n * You may obtain a copy of the License at\r\n *\r\n *     http://www.apache.org/licenses/LICENSE-2.0\r\n *\r\n * Unless required by applicable law or agreed to in writing, software\r\n * distributed under the License is distributed on an \"AS IS\" BASIS,\r\n * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.\r\n * See the License for the specific language governing permissions and\r\n * limitations under the License.\r\n */\r\n\r\npackage com.google.mlkit.vision.demo.kotlin\r\n\r\nimport android.content.Context\r\nimport android.content.Intent\r\nimport android.os.Build.VERSION_CODES\r\nimport android.os.Bundle\r\nimport androidx.appcompat.app.AppCompatActivity\r\nimport android.util.Log\r\nimport android.view.View\r\nimport android.widget.AdapterView\r\nimport android.widget.AdapterView.OnItemSelectedListener\r\nimport android.widget.ArrayAdapter\r\nimport android.widget.CompoundButton\r\nimport android.widget.ImageView\r\nimport android.widget.Spinner\r\nimport android.widget.Toast\r\nimport android.widget.ToggleButton\r\nimport androidx.annotation.RequiresApi\r\nimport androidx.camera.core.CameraInfoUnavailableException\r\nimport androidx.camera.core.CameraSelector\r\nimport androidx.camera.core.ImageAnalysis\r\nimport androidx.camera.core.ImageProxy\r\nimport androidx.camera.core.Preview\r\nimport androidx.camera.lifecycle.ProcessCameraProvider\r\nimport androidx.camera.view.PreviewView\r\nimport androidx.core.content.ContextCompat\r\nimport androidx.lifecycle.Observer\r\nimport androidx.lifecycle.ViewModelProvider\r\nimport com.google.android.gms.common.annotation.KeepName\r\nimport com.google.mlkit.common.MlKitException\r\nimport com.google.mlkit.common.model.LocalModel\r\nimport com.google.mlkit.vision.demo.CameraXViewModel\r\nimport com.google.mlkit.vision.demo.GraphicOverlay\r\nimport com.google.mlkit.vision.demo.R\r\nimport com.google.mlkit.vision.demo.VisionImageProcessor\r\nimport com.google.mlkit.vision.demo.kotlin.textdetector.TextRecognitionProcessor\r\nimport com.google.mlkit.vision.demo.preference.PreferenceUtils\r\nimport com.google.mlkit.vision.demo.preference.SettingsActivity\r\nimport com.google.mlkit.vision.demo.preference.SettingsActivity.LaunchSource\r\nimport com.google.mlkit.vision.label.custom.CustomImageLabelerOptions\r\nimport com.google.mlkit.vision.label.defaults.ImageLabelerOptions\r\nimport com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions\r\nimport com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions\r\nimport com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions\r\nimport com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions\r\nimport com.google.mlkit.vision.text.latin.TextRecognizerOptions\r\nimport java.util.ArrayList\r\n\r\n/** Live preview demo app for ML Kit APIs using CameraX. */\r\n@KeepName\r\n@RequiresApi(VERSION_CODES.LOLLIPOP)\r\nclass CameraXLivePreviewActivity :\r\n  AppCompatActivity(), OnItemSelectedListener, CompoundButton.OnCheckedChangeListener {\r\n\r\n  private var previewView: PreviewView? = null\r\n  private var graphicOverlay: GraphicOverlay? = null\r\n  private var cameraProvider: ProcessCameraProvider? = null\r\n  private var previewUseCase: Preview? = null\r\n  private var analysisUseCase: ImageAnalysis? = null\r\n  private var imageProcessor: VisionImageProcessor? = null\r\n  private var needUpdateGraphicOverlayImageSourceInfo = false\r\n  private var selectedModel = TEXT_RECOGNITION_KOREAN\r\n  private var lensFacing = CameraSelector.LENS_FACING_BACK\r\n  private var cameraSelector: CameraSelector? = null\r\n\r\n  override fun onCreate(savedInstanceState: Bundle?) {\r\n    super.onCreate(savedInstanceState)\r\n    Log.d(TAG, \"onCreate\")\r\n    if (savedInstanceState != null) {\r\n      selectedModel = savedInstanceState.getString(STATE_SELECTED_MODEL, TEXT_RECOGNITION_KOREAN)\r\n    }\r\n    cameraSelector = CameraSelector.Builder().requireLensFacing(lensFacing).build()\r\n    setContentView(R.layout.activity_vision_camerax_live_preview)\r\n    previewView = findViewById(R.id.preview_view)\r\n    if (previewView == null) {\r\n      Log.d(TAG, \"previewView is null\")\r\n    }\r\n    graphicOverlay = findViewById(R.id.graphic_overlay)\r\n    if (graphicOverlay == null) {\r\n      Log.d(TAG, \"graphicOverlay is null\")\r\n    }\r\n    val spinner = findViewById<Spinner>(R.id.spinner)\r\n    val options: MutableList<String> = ArrayList()\r\n    options.add(TEXT_RECOGNITION_KOREAN)\r\n    options.add(TEXT_RECOGNITION_LATIN)\r\n\r\n    // Creating adapter for spinner\r\n    val dataAdapter = ArrayAdapter(this, R.layout.spinner_style, options)\r\n    // Drop down layout style - list view with radio button\r\n    dataAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)\r\n    // attaching data adapter to spinner\r\n    spinner.adapter = dataAdapter\r\n    spinner.onItemSelectedListener = this\r\n    val facingSwitch = findViewById<ToggleButton>(R.id.facing_switch)\r\n    facingSwitch.setOnCheckedChangeListener(this)\r\n    ViewModelProvider(this, ViewModelProvider.AndroidViewModelFactory.getInstance(application))\r\n      .get(CameraXViewModel::class.java)\r\n      .processCameraProvider\r\n      .observe(\r\n        this,\r\n        Observer { provider: ProcessCameraProvider? ->\r\n          cameraProvider = provider\r\n          bindAllCameraUseCases()\r\n        }\r\n      )\r\n\r\n    val settingsButton = findViewById<ImageView>(R.id.settings_button)\r\n    settingsButton.setOnClickListener {\r\n      val intent = Intent(applicationContext, SettingsActivity::class.java)\r\n      intent.putExtra(SettingsActivity.EXTRA_LAUNCH_SOURCE, LaunchSource.CAMERAX_LIVE_PREVIEW)\r\n      startActivity(intent)\r\n    }\r\n  }\r\n\r\n  override fun onSaveInstanceState(bundle: Bundle) {\r\n    super.onSaveInstanceState(bundle)\r\n    bundle.putString(STATE_SELECTED_MODEL, selectedModel)\r\n  }\r\n\r\n  @Synchronized\r\n  override fun onItemSelected(parent: AdapterView<*>?, view: View?, pos: Int, id: Long) {\r\n    // An item was selected. You can retrieve the selected item using\r\n    // parent.getItemAtPosition(pos)\r\n    selectedModel = parent?.getItemAtPosition(pos).toString()\r\n    Log.d(TAG, \"Selected model: $selectedModel\")\r\n    bindAnalysisUseCase()\r\n  }\r\n\r\n  override fun onNothingSelected(parent: AdapterView<*>?) {\r\n    // Do nothing.\r\n  }\r\n\r\n  override fun onCheckedChanged(buttonView: CompoundButton, isChecked: Boolean) {\r\n    if (cameraProvider == null) {\r\n      return\r\n    }\r\n    val newLensFacing =\r\n      if (lensFacing == CameraSelector.LENS_FACING_FRONT) {\r\n        CameraSelector.LENS_FACING_BACK\r\n      } else {\r\n        CameraSelector.LENS_FACING_FRONT\r\n      }\r\n    val newCameraSelector = CameraSelector.Builder().requireLensFacing(newLensFacing).build()\r\n    try {\r\n      if (cameraProvider!!.hasCamera(newCameraSelector)) {\r\n        Log.d(TAG, \"Set facing to \" + newLensFacing)\r\n        lensFacing = newLensFacing\r\n        cameraSelector = newCameraSelector\r\n        bindAllCameraUseCases()\r\n        return\r\n      }\r\n    } catch (e: CameraInfoUnavailableException) {\r\n      // Falls through\r\n    }\r\n    Toast.makeText(\r\n        applicationContext,\r\n        \"This device does not have lens with facing: $newLensFacing\",\r\n        Toast.LENGTH_SHORT\r\n      )\r\n      .show()\r\n  }\r\n\r\n  public override fun onResume() {\r\n    super.onResume()\r\n    bindAllCameraUseCases()\r\n  }\r\n\r\n  override fun onPause() {\r\n    super.onPause()\r\n\r\n    imageProcessor?.run { this.stop() }\r\n  }\r\n\r\n  public override fun onDestroy() {\r\n    super.onDestroy()\r\n    imageProcessor?.run { this.stop() }\r\n  }\r\n\r\n  private fun bindAllCameraUseCases() {\r\n    if (cameraProvider != null) {\r\n      // As required by CameraX API, unbinds all use cases before trying to re-bind any of them.\r\n      cameraProvider!!.unbindAll()\r\n      bindPreviewUseCase()\r\n      bindAnalysisUseCase()\r\n    }\r\n  }\r\n\r\n  private fun bindPreviewUseCase() {\r\n    if (!PreferenceUtils.isCameraLiveViewportEnabled(this)) {\r\n      return\r\n    }\r\n    if (cameraProvider == null) {\r\n      return\r\n    }\r\n    if (previewUseCase != null) {\r\n      cameraProvider!!.unbind(previewUseCase)\r\n    }\r\n\r\n    val builder = Preview.Builder()\r\n    val targetResolution = PreferenceUtils.getCameraXTargetResolution(this, lensFacing)\r\n    if (targetResolution != null) {\r\n      builder.setTargetResolution(targetResolution)\r\n    }\r\n    previewUseCase = builder.build()\r\n    previewUseCase!!.setSurfaceProvider(previewView!!.getSurfaceProvider())\r\n    cameraProvider!!.bindToLifecycle(/* lifecycleOwner= */ this, cameraSelector!!, previewUseCase)\r\n  }\r\n\r\n  private fun bindAnalysisUseCase() {\r\n    if (cameraProvider == null) {\r\n      return\r\n    }\r\n    if (analysisUseCase != null) {\r\n      cameraProvider!!.unbind(analysisUseCase)\r\n    }\r\n    if (imageProcessor != null) {\r\n      imageProcessor!!.stop()\r\n    }\r\n    imageProcessor =\r\n      try {\r\n        when (selectedModel) {\r\n          TEXT_RECOGNITION_KOREAN -> {\r\n            Log.i(TAG, \"Using on-device Text recognition Processor for Latin and Korean\")\r\n            TextRecognitionProcessor(this, KoreanTextRecognizerOptions.Builder().build())\r\n          }\r\n          TEXT_RECOGNITION_LATIN -> {\r\n            Log.i(TAG, \"Using on-device Text recognition Processor for Latin\")\r\n            TextRecognitionProcessor(this, TextRecognizerOptions.Builder().build())\r\n          }\r\n//          IMAGE_LABELING_CUSTOM -> {\r\n//            Log.i(TAG, \"Using Custom Image Label (Birds) Detector Processor\")\r\n//            val localClassifier =\r\n//              LocalModel.Builder().setAssetFilePath(\"custom_models/bird_classifier.tflite\").build()\r\n//            val customImageLabelerOptions =\r\n//              CustomImageLabelerOptions.Builder(localClassifier).build()\r\n//            LabelDetectorProcessor(this, customImageLabelerOptions)\r\n//          }\r\n          else -> throw IllegalStateException(\"Invalid model name\")\r\n        }\r\n      } catch (e: Exception) {\r\n        Log.e(TAG, \"Can not create image processor: $selectedModel\", e)\r\n        Toast.makeText(\r\n            applicationContext,\r\n            \"Can not create image processor: \" + e.localizedMessage,\r\n            Toast.LENGTH_LONG\r\n          )\r\n          .show()\r\n        return\r\n      }\r\n\r\n    val builder = ImageAnalysis.Builder()\r\n    val targetResolution = PreferenceUtils.getCameraXTargetResolution(this, lensFacing)\r\n    if (targetResolution != null) {\r\n      builder.setTargetResolution(targetResolution)\r\n    }\r\n    analysisUseCase = builder.build()\r\n\r\n    needUpdateGraphicOverlayImageSourceInfo = true\r\n\r\n    analysisUseCase?.setAnalyzer(\r\n      // imageProcessor.processImageProxy will use another thread to run the detection underneath,\r\n      // thus we can just runs the analyzer itself on main thread.\r\n      ContextCompat.getMainExecutor(this),\r\n      ImageAnalysis.Analyzer { imageProxy: ImageProxy ->\r\n        if (needUpdateGraphicOverlayImageSourceInfo) {\r\n          val isImageFlipped = lensFacing == CameraSelector.LENS_FACING_FRONT\r\n          val rotationDegrees = imageProxy.imageInfo.rotationDegrees\r\n          if (rotationDegrees == 0 || rotationDegrees == 180) {\r\n            graphicOverlay!!.setImageSourceInfo(imageProxy.width, imageProxy.height, isImageFlipped)\r\n          } else {\r\n            graphicOverlay!!.setImageSourceInfo(imageProxy.height, imageProxy.width, isImageFlipped)\r\n          }\r\n          needUpdateGraphicOverlayImageSourceInfo = false\r\n        }\r\n        try {\r\n          imageProcessor!!.processImageProxy(imageProxy, graphicOverlay)\r\n        } catch (e: MlKitException) {\r\n          Log.e(TAG, \"Failed to process image. Error: \" + e.localizedMessage)\r\n          Toast.makeText(applicationContext, e.localizedMessage, Toast.LENGTH_SHORT).show()\r\n        }\r\n      }\r\n    )\r\n    cameraProvider!!.bindToLifecycle(/* lifecycleOwner= */ this, cameraSelector!!, analysisUseCase)\r\n  }\r\n\r\n  companion object {\r\n    private const val TAG = \"CameraXLivePreview\"\r\n    private const val TEXT_RECOGNITION_LATIN = \"Text Recognition Latin\"\r\n    private const val TEXT_RECOGNITION_CHINESE = \"Text Recognition Chinese\"\r\n    private const val TEXT_RECOGNITION_DEVANAGARI = \"Text Recognition Devanagari\"\r\n    private const val TEXT_RECOGNITION_JAPANESE = \"Text Recognition Japanese\"\r\n    private const val TEXT_RECOGNITION_KOREAN = \"Text Recognition Korean\"\r\n\r\n    private const val STATE_SELECTED_MODEL = \"selected_model\"\r\n  }\r\n}\r\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/app/src/main/java/com/google/mlkit/vision/demo/kotlin/CameraXLivePreviewActivity.kt b/app/src/main/java/com/google/mlkit/vision/demo/kotlin/CameraXLivePreviewActivity.kt
+--- a/app/src/main/java/com/google/mlkit/vision/demo/kotlin/CameraXLivePreviewActivity.kt	(revision c48a821b4146655badfaf0d221109e9168627e02)
++++ b/app/src/main/java/com/google/mlkit/vision/demo/kotlin/CameraXLivePreviewActivity.kt	(date 1653476331858)
+@@ -16,27 +16,22 @@
+ 
+ package com.google.mlkit.vision.demo.kotlin
+ 
+-import android.content.Context
++import android.Manifest
+ import android.content.Intent
++import android.content.pm.PackageManager
++import android.net.Uri
+ import android.os.Build.VERSION_CODES
+ import android.os.Bundle
++import android.os.Environment
+ import androidx.appcompat.app.AppCompatActivity
+ import android.util.Log
+ import android.view.View
+-import android.widget.AdapterView
++import android.view.animation.Animation
++import android.view.animation.AnimationUtils
++import android.widget.*
+ import android.widget.AdapterView.OnItemSelectedListener
+-import android.widget.ArrayAdapter
+-import android.widget.CompoundButton
+-import android.widget.ImageView
+-import android.widget.Spinner
+-import android.widget.Toast
+-import android.widget.ToggleButton
+ import androidx.annotation.RequiresApi
+-import androidx.camera.core.CameraInfoUnavailableException
+-import androidx.camera.core.CameraSelector
+-import androidx.camera.core.ImageAnalysis
+-import androidx.camera.core.ImageProxy
+-import androidx.camera.core.Preview
++import androidx.camera.core.*
+ import androidx.camera.lifecycle.ProcessCameraProvider
+ import androidx.camera.view.PreviewView
+ import androidx.core.content.ContextCompat
+@@ -44,7 +39,6 @@
+ import androidx.lifecycle.ViewModelProvider
+ import com.google.android.gms.common.annotation.KeepName
+ import com.google.mlkit.common.MlKitException
+-import com.google.mlkit.common.model.LocalModel
+ import com.google.mlkit.vision.demo.CameraXViewModel
+ import com.google.mlkit.vision.demo.GraphicOverlay
+ import com.google.mlkit.vision.demo.R
+@@ -53,14 +47,13 @@
+ import com.google.mlkit.vision.demo.preference.PreferenceUtils
+ import com.google.mlkit.vision.demo.preference.SettingsActivity
+ import com.google.mlkit.vision.demo.preference.SettingsActivity.LaunchSource
+-import com.google.mlkit.vision.label.custom.CustomImageLabelerOptions
+-import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
+-import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
+-import com.google.mlkit.vision.text.devanagari.DevanagariTextRecognizerOptions
+-import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
+ import com.google.mlkit.vision.text.korean.KoreanTextRecognizerOptions
+ import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+-import java.util.ArrayList
++import java.io.File
++import java.text.SimpleDateFormat
++import java.util.*
++import java.util.concurrent.ExecutorService
++import java.util.concurrent.Executors
+ 
+ /** Live preview demo app for ML Kit APIs using CameraX. */
+ @KeepName
+@@ -79,6 +72,18 @@
+   private var lensFacing = CameraSelector.LENS_FACING_BACK
+   private var cameraSelector: CameraSelector? = null
+ 
++
++  private var imageCapture: ImageCapture? = null
++
++
++  private lateinit var outputDirectory: File
++  private lateinit var cameraExecutor: ExecutorService
++
++  private lateinit var cameraAnimationListener: Animation.AnimationListener
++
++  private var savedUri: Uri? = null
++
++  @RequiresApi(VERSION_CODES.R)
+   override fun onCreate(savedInstanceState: Bundle?) {
+     super.onCreate(savedInstanceState)
+     Log.d(TAG, "onCreate")
+@@ -120,12 +125,121 @@
+         }
+       )
+ 
++
+     val settingsButton = findViewById<ImageView>(R.id.settings_button)
+     settingsButton.setOnClickListener {
+       val intent = Intent(applicationContext, SettingsActivity::class.java)
+       intent.putExtra(SettingsActivity.EXTRA_LAUNCH_SOURCE, LaunchSource.CAMERAX_LIVE_PREVIEW)
+       startActivity(intent)
+     }
++
++    val saveButton=findViewById<Button>(R.id.button2)
++    saveButton.setOnClickListener {
++      savePhoto()
++    }
++
++    permissionCheck()
++    outputDirectory=getOutputDirectory()
++    //Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
++
++    cameraExecutor= Executors.newSingleThreadExecutor()
++
++  }
++
++  private fun savePhoto() {
++    imageCapture = imageCapture ?: return
++
++    val photoFile = File(
++      outputDirectory,
++      SimpleDateFormat("yy-mm-dd", Locale.US).format(System.currentTimeMillis()) + ".png"
++    )
++    val outputOption = ImageCapture.OutputFileOptions.Builder(photoFile).build()
++
++    imageCapture?.takePicture(
++      outputOption,
++      ContextCompat.getMainExecutor(this),
++      object : ImageCapture.OnImageSavedCallback {
++        override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
++          savedUri = Uri.fromFile(photoFile)
++          Log.d("SAVEURL", savedUri.toString())
++        }
++
++        override fun onError(exception: ImageCaptureException) {
++          exception.printStackTrace()
++          onBackPressed()
++        }
++
++      })
++
++  }
++
++  private fun permissionCheck() {
++
++    var permissionList =
++      listOf(Manifest.permission.CAMERA, Manifest.permission.READ_EXTERNAL_STORAGE)
++
++
++    if (!PermissionUtil.checkPermission(this, permissionList)) {
++      PermissionUtil.requestPermission(this, permissionList)
++    } else {
++      openCamera()
++
++    }
++  }
++
++  override fun onRequestPermissionsResult(
++    requestCode: Int,
++    permissions: Array<out String>,
++    grantResults: IntArray
++  ) {
++    super.onRequestPermissionsResult(requestCode, permissions, grantResults)
++
++    if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
++
++      openCamera()
++    } else {
++
++      onBackPressed()
++    }
++  }
++
++  private fun getOutputDirectory(): File {
++    val mediaDir = externalMediaDirs.firstOrNull()?.let {
++      File(it, resources.getString(R.string.app_name)).apply { mkdirs() }
++    }
++    return if (mediaDir != null && mediaDir.exists())
++      mediaDir else filesDir
++  }
++
++  private fun openCamera() {
++
++
++    val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
++
++    cameraProviderFuture.addListener({
++      val cameraProvider: ProcessCameraProvider = cameraProviderFuture.get()
++
++      val preview = Preview.Builder()
++        .build()
++        .also {
++          it.setSurfaceProvider(previewView?.surfaceProvider)
++        }
++
++      imageCapture = ImageCapture.Builder().build()
++
++      val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
++
++      try {
++
++        cameraProvider.unbindAll()
++        cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture)
++
++
++      } catch (e: Exception) {
++
++      }
++    }, ContextCompat.getMainExecutor(this))
++
+   }
+ 
+   override fun onSaveInstanceState(bundle: Bundle) {
+@@ -169,10 +283,10 @@
+       // Falls through
+     }
+     Toast.makeText(
+-        applicationContext,
+-        "This device does not have lens with facing: $newLensFacing",
+-        Toast.LENGTH_SHORT
+-      )
++      applicationContext,
++      "This device does not have lens with facing: $newLensFacing",
++      Toast.LENGTH_SHORT
++    )
+       .show()
+   }
+ 
+@@ -256,10 +370,10 @@
+       } catch (e: Exception) {
+         Log.e(TAG, "Can not create image processor: $selectedModel", e)
+         Toast.makeText(
+-            applicationContext,
+-            "Can not create image processor: " + e.localizedMessage,
+-            Toast.LENGTH_LONG
+-          )
++          applicationContext,
++          "Can not create image processor: " + e.localizedMessage,
++          Toast.LENGTH_LONG
++        )
+           .show()
+         return
+       }
+@@ -309,4 +423,4 @@
+ 
+     private const val STATE_SELECTED_MODEL = "selected_model"
+   }
+-}
++}
+\ No newline at end of file
+Index: app/src/main/res/layout/activity_vision_live_preview.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n<androidx.constraintlayout.widget.ConstraintLayout\r\n    xmlns:android=\"http://schemas.android.com/apk/res/android\"\r\n    xmlns:app=\"http://schemas.android.com/apk/res-auto\"\r\n    android:layout_width=\"match_parent\"\r\n    android:layout_height=\"match_parent\"\r\n    android:keepScreenOn=\"true\">\r\n\r\n  <com.google.mlkit.vision.demo.CameraSourcePreview\r\n      android:id=\"@+id/preview_view\"\r\n      android:layout_width=\"match_parent\"\r\n      android:layout_height=\"0dp\"\r\n      app:layout_constraintTop_toTopOf=\"parent\"\r\n      app:layout_constraintBottom_toTopOf=\"@+id/control\"/>\r\n\r\n  <com.google.mlkit.vision.demo.GraphicOverlay\r\n      android:id=\"@+id/graphic_overlay\"\r\n      android:layout_width=\"0dp\"\r\n      android:layout_height=\"0dp\"\r\n      app:layout_constraintLeft_toLeftOf=\"@id/preview_view\"\r\n      app:layout_constraintRight_toRightOf=\"@id/preview_view\"\r\n      app:layout_constraintTop_toTopOf=\"@id/preview_view\"\r\n      app:layout_constraintBottom_toBottomOf=\"@id/preview_view\"/>\r\n\r\n  <include\r\n      android:id=\"@+id/settings_button\"\r\n      layout=\"@layout/settings_style\"\r\n      android:layout_width=\"wrap_content\"\r\n      android:layout_height=\"wrap_content\"\r\n      app:layout_constraintRight_toRightOf=\"@id/preview_view\"\r\n      app:layout_constraintTop_toTopOf=\"@id/preview_view\" />\r\n\r\n  <LinearLayout\r\n      android:id=\"@id/control\"\r\n      android:layout_width=\"match_parent\"\r\n      android:layout_height=\"60dp\"\r\n      app:layout_constraintBottom_toBottomOf=\"parent\"\r\n      android:background=\"#000\"\r\n      android:orientation=\"horizontal\">\r\n\r\n    <ToggleButton\r\n        android:id=\"@+id/facing_switch\"\r\n        android:layout_width=\"48dp\"\r\n        android:layout_height=\"48dp\"\r\n        android:layout_gravity=\"center_vertical\"\r\n        android:background=\"@layout/toggle_style\"\r\n        android:checked=\"false\"\r\n        android:textOff=\"\"\r\n        android:textOn=\"\"/>\r\n\r\n    <Spinner\r\n        android:id=\"@+id/spinner\"\r\n        android:layout_width=\"0dp\"\r\n        android:layout_weight=\"1\"\r\n        android:layout_height=\"wrap_content\"\r\n        android:layout_gravity=\"center\"/>\r\n\r\n  </LinearLayout>\r\n\r\n</androidx.constraintlayout.widget.ConstraintLayout>\r\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/app/src/main/res/layout/activity_vision_live_preview.xml b/app/src/main/res/layout/activity_vision_live_preview.xml
+--- a/app/src/main/res/layout/activity_vision_live_preview.xml	(revision c48a821b4146655badfaf0d221109e9168627e02)
++++ b/app/src/main/res/layout/activity_vision_live_preview.xml	(date 1653476728561)
+@@ -11,7 +11,9 @@
+       android:layout_width="match_parent"
+       android:layout_height="0dp"
+       app:layout_constraintTop_toTopOf="parent"
+-      app:layout_constraintBottom_toTopOf="@+id/control"/>
++      app:layout_constraintBottom_toTopOf="@+id/control">
++
++  </com.google.mlkit.vision.demo.CameraSourcePreview>
+ 
+   <com.google.mlkit.vision.demo.GraphicOverlay
+       android:id="@+id/graphic_overlay"
+@@ -50,11 +52,11 @@
+ 
+     <Spinner
+         android:id="@+id/spinner"
+-        android:layout_width="0dp"
+-        android:layout_weight="1"
++        android:layout_width="318dp"
+         android:layout_height="wrap_content"
+-        android:layout_gravity="center"/>
++        android:layout_gravity="center"
++        android:layout_weight="1" />
+ 
+   </LinearLayout>
+ 
+-</androidx.constraintlayout.widget.ConstraintLayout>
++</androidx.constraintlayout.widget.ConstraintLayout>
+\ No newline at end of file
+Index: app/build.gradle
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>apply plugin: 'com.android.application'\r\napply plugin: 'kotlin-android'\r\napply plugin: 'kotlin-android-extensions'\r\n\r\nandroid {\r\n    compileSdkVersion 31\r\n\r\n    defaultConfig {\r\n        applicationId \"com.google.mlkit.vision.demo\"\r\n        minSdkVersion 21\r\n        multiDexEnabled true\r\n        targetSdkVersion 31\r\n\r\n        versionCode 11\r\n        versionName \"1.11\"\r\n        vectorDrawables.useSupportLibrary = true\r\n        setProperty(\"archivesBaseName\", \"vision-quickstart\")\r\n    }\r\n    buildTypes {\r\n        proguard {\r\n            debuggable false\r\n            minifyEnabled true\r\n            shrinkResources true\r\n            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro', 'proguard.cfg'\r\n        }\r\n        release {\r\n            minifyEnabled true\r\n            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'\r\n        }\r\n        debug {\r\n            minifyEnabled false\r\n            proguardFiles 'proguard-rules.pro'\r\n        }\r\n        testBuildType \"debug\"\r\n    }\r\n\r\n    compileOptions {\r\n        sourceCompatibility JavaVersion.VERSION_1_8\r\n        targetCompatibility JavaVersion.VERSION_1_8\r\n    }\r\n\r\n    // Do NOT compress tflite model files (need to call out to developers!)\r\n    aaptOptions {\r\n        noCompress \"tflite\"\r\n    }\r\n}\r\n\r\nrepositories {\r\n    // Depending on AndroidX Snapshot Builds to get the latest CameraX libs.\r\n    maven { url 'https://androidx.dev/snapshots/builds/6787662/artifacts/repository/' }\r\n}\r\n\r\ndependencies {\r\n\r\n    implementation 'org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.5.31'\r\n    implementation 'androidx.multidex:multidex:2.0.1'\r\n\r\n    // Barcode model\r\n    implementation 'com.google.mlkit:barcode-scanning:17.0.2'\r\n    // Or comment the dependency above and uncomment the dependency below to\r\n    // use unbundled model that depends on Google Play Services\r\n    // implementation 'com.google.android.gms:play-services-mlkit-barcode-scanning:18.0.0'\r\n\r\n    // Object detection feature with bundled default classifier\r\n    implementation 'com.google.mlkit:object-detection:17.0.0'\r\n\r\n    // Object detection feature with custom classifier support\r\n    implementation 'com.google.mlkit:object-detection-custom:17.0.0'\r\n\r\n    // Face features\r\n    implementation 'com.google.mlkit:face-detection:16.1.5'\r\n    // Or comment the dependency above and uncomment the dependency below to\r\n    // use unbundled model that depends on Google Play Services\r\n    // implementation 'com.google.android.gms:play-services-mlkit-face-detection:17.0.1'\r\n\r\n    // Text features\r\n    implementation 'com.google.android.gms:play-services-mlkit-text-recognition:18.0.0'\r\n    // Or comment the dependency above and uncomment the dependency below to\r\n    // use bundled model.\r\n    // implementation 'com.google.mlkit:text-recognition:16.0.0-beta3'\r\n    implementation 'com.google.mlkit:text-recognition-chinese:16.0.0-beta3'\r\n    implementation 'com.google.mlkit:text-recognition-devanagari:16.0.0-beta3'\r\n    implementation 'com.google.mlkit:text-recognition-japanese:16.0.0-beta3'\r\n    implementation 'com.google.mlkit:text-recognition-korean:16.0.0-beta3'\r\n\r\n    // Image labeling\r\n    implementation 'com.google.mlkit:image-labeling:17.0.7'\r\n    // Or comment the dependency above and uncomment the dependency below to\r\n    // use unbundled model that depends on Google Play Services\r\n    // implementation 'com.google.android.gms:play-services-mlkit-image-labeling:16.0.7'\r\n\r\n    // Image labeling custom\r\n    implementation 'com.google.mlkit:image-labeling-custom:17.0.1'\r\n    // Or comment the dependency above and uncomment the dependency below to\r\n    // use unbundled model that depends on Google Play Services\r\n    // implementation 'com.google.android.gms:play-services-mlkit-image-labeling-custom:16.0.0-beta3'\r\n\r\n    // Pose detection with default models\r\n    implementation 'com.google.mlkit:pose-detection:18.0.0-beta2'\r\n    // Pose detection with accurate models\r\n    implementation 'com.google.mlkit:pose-detection-accurate:18.0.0-beta2'\r\n\r\n    // Selfie segmentation\r\n    implementation 'com.google.mlkit:segmentation-selfie:16.0.0-beta4'\r\n\r\n    implementation 'com.google.mlkit:camera:16.0.0-beta3'\r\n\r\n    // -------------------------------------------------------\r\n\r\n    implementation 'com.google.code.gson:gson:2.8.6'\r\n    implementation 'com.google.guava:guava:27.1-android'\r\n\r\n    // For how to setup gradle dependencies in Android X, see:\r\n    // https://developer.android.com/training/testing/set-up-project#gradle-dependencies\r\n    // Core library\r\n    androidTestImplementation 'androidx.test:core:1.4.0'\r\n\r\n    // AndroidJUnitRunner and JUnit Rules\r\n    androidTestImplementation 'androidx.test:runner:1.4.0'\r\n    androidTestImplementation 'androidx.test:rules:1.4.0'\r\n\r\n    // Assertions\r\n    androidTestImplementation 'androidx.test.ext:junit:1.1.3'\r\n\r\n    // ViewModel and LiveData\r\n    implementation \"androidx.lifecycle:lifecycle-livedata:2.3.1\"\r\n    implementation \"androidx.lifecycle:lifecycle-viewmodel:2.3.1\"\r\n\r\n    implementation 'androidx.appcompat:appcompat:1.2.0'\r\n    implementation 'androidx.annotation:annotation:1.2.0'\r\n    implementation 'androidx.constraintlayout:constraintlayout:2.0.4'\r\n\r\n    // CameraX\r\n    implementation \"androidx.camera:camera-camera2:1.0.0-SNAPSHOT\"\r\n    implementation \"androidx.camera:camera-lifecycle:1.0.0-SNAPSHOT\"\r\n    implementation \"androidx.camera:camera-view:1.0.0-SNAPSHOT\"\r\n\r\n    // On Device Machine Learnings\r\n    implementation \"com.google.android.odml:image:1.0.0-beta1\"\r\n}\r\n\r\nconfigurations {\r\n    // Resolves dependency conflict caused by some dependencies use\r\n    // com.google.guava:guava and com.google.guava:listenablefuture together.\r\n    all*.exclude group: 'com.google.guava', module: 'listenablefuture'\r\n}\r\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/app/build.gradle b/app/build.gradle
+--- a/app/build.gradle	(revision c48a821b4146655badfaf0d221109e9168627e02)
++++ b/app/build.gradle	(date 1653369357898)
+@@ -16,6 +16,12 @@
+         vectorDrawables.useSupportLibrary = true
+         setProperty("archivesBaseName", "vision-quickstart")
+     }
++    dataBinding {
++        enabled = true
++    }
++    viewBinding {
++        enabled = true
++    }
+     buildTypes {
+         proguard {
+             debuggable false
+Index: app/src/main/res/values/strings.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n<resources>\r\n    <string name=\"app_name\" translatable=\"false\">MLKit-Vision</string>\r\n    <string name=\"kotlin_entry_title\" translatable=\"false\">Run the Mosaic Camera App</string>\r\n    <string name=\"ok\" translatable=\"false\">OK</string>\r\n    <string name=\"permission_camera_rationale\" translatable=\"false\">Access to the camera is needed for detection</string>\r\n    <string name=\"no_camera_permission\" translatable=\"false\">This application cannot run because it does not have the camera permission.  The application will now exit.</string>\r\n    <string name=\"low_storage_error\" translatable=\"false\">Face detector dependencies cannot be downloaded due to low device storage</string>\r\n    <string name=\"toggle_turn_on\" translatable=\"false\">Front</string>\r\n    <string name=\"toggle_turn_off\" translatable=\"false\">Back</string>\r\n    <string name=\"desc_camera_source_activity\" translatable=\"false\">Vision detectors demo with live camera preview</string>\r\n    <string name=\"desc_still_image_activity\" translatable=\"false\">Vision detectors demo with a still image</string>\r\n    <string name=\"desc_camerax_live_preview_activity\" translatable=\"false\">Vision detectors demo with live preview using CameraX. Note that CameraX is only supported on API 21+</string>\r\n    <string name=\"desc_cameraxsource_demo_activity\" translatable=\"false\">Object detection with custom classifier using ML Kit CameraXSource API. Note that CameraX is only supported on API 21+</string>\r\n    <string name=\"download_error\" translatable=\"false\">Download error</string>\r\n    <string name=\"start_over\" translatable=\"false\">Start over</string>\r\n    <string name=\"menu_item_settings\" translatable=\"false\">Settings</string>\r\n    <string name=\"select_image\" translatable=\"false\">Select image</string>\r\n    <string name=\"custom_object_detection\" translatable=\"false\">Custom Object Detector</string>\r\n\r\n    <!-- Settings related strings. -->\r\n    <string name=\"pref_screen\" translatable=\"false\">ps</string>\r\n    <string name=\"pref_screen_title_live_preview\" translatable=\"false\">Live preview settings</string>\r\n    <string name=\"pref_screen_title_still_image\" translatable=\"false\">Still image settings</string>\r\n    <string name=\"pref_screen_title_camerax_live_preview\" translatable=\"false\">CameraX live preview settings</string>\r\n    <string name=\"pref_screen_title_cameraxsource_demo\" translatable=\"false\">CameraXSource live preview settings</string>\r\n    <string name=\"pref_category_info\" translatable=\"false\">Detection Info</string>\r\n    <string name=\"pref_category_face_detection\" translatable=\"false\">Face Detection</string>\r\n    <string name=\"pref_category_object_detection\" translatable=\"false\">Object Detection / Custom Object Detection</string>\r\n    <string name=\"pref_category_automl\" translatable=\"false\">AutoML Image Labeling</string>\r\n    <string name=\"pref_category_pose_detection\" translatable=\"false\">Pose Detection</string>\r\n    <string name=\"pref_category_segmentation\" translatable=\"false\">Selfie Segmentation</string>\r\n    <string name=\"pref_category_text_recognition\" translatable=\"false\">Text Recognition</string>\r\n\r\n    <!-- Strings for camera settings. -->\r\n    <string name=\"pref_category_key_camera\" translatable=\"false\">pckc</string>\r\n    <string name=\"pref_category_title_camera\" translatable=\"false\">Camera</string>\r\n    <string name=\"pref_key_rear_camera_preview_size\" translatable=\"false\">rcpvs</string>\r\n    <string name=\"pref_key_rear_camera_picture_size\" translatable=\"false\">rcpts</string>\r\n    <string name=\"pref_key_front_camera_preview_size\" translatable=\"false\">fcpvs</string>\r\n    <string name=\"pref_key_front_camera_picture_size\" translatable=\"false\">fcpts</string>\r\n    <string name=\"pref_key_camerax_rear_camera_target_resolution\" translatable=\"false\">crctas</string>\r\n    <string name=\"pref_key_camerax_front_camera_target_resolution\" translatable=\"false\">cfctas</string>\r\n    <string name=\"pref_key_camera_live_viewport\" translatable=\"false\">clv</string>\r\n    <string name=\"pref_title_rear_camera_preview_size\" translatable=\"false\">Rear camera preview size</string>\r\n    <string name=\"pref_title_front_camera_preview_size\" translatable=\"false\">Front camera preview size</string>\r\n    <string name=\"pref_title_camerax_rear_camera_target_resolution\" translatable=\"false\">CameraX rear camera target resolution</string>\r\n    <string name=\"pref_title_camerax_front_camera_target_resolution\" translatable=\"false\">CameraX front camera target resolution</string>\r\n    <string name=\"pref_title_camera_live_viewport\" translatable=\"false\">Enable live viewport</string>\r\n    <string name=\"pref_summary_camera_live_viewport\" translatable=\"false\">Do not block camera preview drawing on detection</string>\r\n\r\n    <!-- Strings for info preference. -->\r\n    <string name=\"pref_title_info_hide\" translatable=\"false\">Hide detection info</string>\r\n    <string name=\"pref_key_info_hide\" translatable=\"false\">ih</string>\r\n\r\n    <!-- Strings for text recognition preference. -->\r\n    <string name=\"pref_title_group_recognized_text_in_blocks\" translatable=\"false\">Group recognized text in paragraphs</string>\r\n    <string name=\"pref_key_group_recognized_text_in_blocks\" translatable=\"false\">grtib</string>\r\n    <string name=\"pref_title_show_language_tag\" translatable=\"false\">Show language identified</string>\r\n    <string name=\"pref_key_show_language_tag\" translatable=\"false\">slt</string>\r\n\r\n    <!-- Strings for object detector enable multiple objects preference. -->\r\n    <string name=\"pref_title_object_detector_enable_multiple_objects\" translatable=\"false\">Enable multiple objects</string>\r\n    <string name=\"pref_key_live_preview_object_detector_enable_multiple_objects\" translatable=\"false\">lpodemo</string>\r\n    <string name=\"pref_key_still_image_object_detector_enable_multiple_objects\" translatable=\"false\">siodemo</string>\r\n\r\n    <!-- Strings for object detector enable classification preference. -->\r\n    <string name=\"pref_title_object_detector_enable_classification\" translatable=\"false\">Enable classification</string>\r\n    <string name=\"pref_key_live_preview_object_detector_enable_classification\" translatable=\"false\">lpodec</string>\r\n    <string name=\"pref_key_still_image_object_detector_enable_classification\" translatable=\"false\">siodec</string>\r\n\r\n    <!-- Strings for face detector landmark mode preference. -->\r\n    <string name=\"pref_title_face_detector_landmark_mode\" translatable=\"false\">Landmark mode</string>\r\n    <string name=\"pref_key_live_preview_face_detection_landmark_mode\" translatable=\"false\">lpfdlm</string>\r\n    <string name=\"pref_entries_face_detector_landmark_mode_no_landmarks\" translatable=\"false\">No landmarks</string>\r\n    <string name=\"pref_entries_face_detector_landmark_mode_all_landmarks\" translatable=\"false\">All landmarks</string>\r\n    <!-- The following entry values must match the ones in FaceDetectorOptions#LandmarkMode -->\r\n    <string name=\"pref_entry_values_face_detector_landmark_mode_no_landmarks\" translatable=\"false\">1</string>\r\n    <string name=\"pref_entry_values_face_detector_landmark_mode_all_landmarks\" translatable=\"false\">2</string>\r\n\r\n    <!-- Strings for face detector contour mode preference. -->\r\n    <string name=\"pref_title_face_detector_contour_mode\" translatable=\"false\">Contour mode</string>\r\n    <string name=\"pref_key_live_preview_face_detection_contour_mode\" translatable=\"false\">lpfdcm</string>\r\n    <string name=\"pref_entries_face_detector_contour_mode_no_contours\" translatable=\"false\">No contours</string>\r\n    <string name=\"pref_entries_face_detector_contour_mode_all_contours\" translatable=\"false\">All contours</string>\r\n    <!-- The following entry values must match the ones in FaceDetectorOptions#ContourMode -->\r\n    <string name=\"pref_entry_values_face_detector_contour_mode_no_contours\" translatable=\"false\">1</string>\r\n    <string name=\"pref_entry_values_face_detector_contour_mode_all_contours\" translatable=\"false\">2</string>\r\n\r\n    <!-- Strings for face detector classification mode preference. -->\r\n    <string name=\"pref_title_face_detector_classification_mode\" translatable=\"false\">Classification mode</string>\r\n    <string name=\"pref_key_live_preview_face_detection_classification_mode\" translatable=\"false\">lpfdcfm</string>\r\n    <string name=\"pref_entries_face_detector_classification_mode_no_classifications\" translatable=\"false\">No classifications</string>\r\n    <string name=\"pref_entries_face_detector_classification_mode_all_classifications\" translatable=\"false\">All classifications</string>\r\n    <!-- The following entry values must match the ones in FaceDetectorOptions#ClassificationMode -->\r\n    <string name=\"pref_entry_values_face_detector_classification_mode_no_classifications\" translatable=\"false\">1</string>\r\n    <string name=\"pref_entry_values_face_detector_classification_mode_all_classifications\" translatable=\"false\">2</string>\r\n\r\n    <!-- Strings for face detector performance mode preference. -->\r\n    <string name=\"pref_title_face_detector_performance_mode\" translatable=\"false\">Performance mode</string>\r\n    <string name=\"pref_key_live_preview_face_detection_performance_mode\" translatable=\"false\">lpfdpm</string>\r\n    <string name=\"pref_entries_face_detector_performance_mode_fast\" translatable=\"false\">Fast</string>\r\n    <string name=\"pref_entries_face_detector_performance_mode_accurate\" translatable=\"false\">Accurate</string>\r\n    <!-- The following entry values must match the ones in FaceDetectorOptions#PerformanceMode -->\r\n    <string name=\"pref_entry_values_face_detector_performance_mode_fast\" translatable=\"false\">1</string>\r\n    <string name=\"pref_entry_values_face_detector_performance_mode_accurate\" translatable=\"false\">2</string>\r\n\r\n    <!-- Strings for face detector face tracking preference. -->\r\n    <string name=\"pref_title_face_detector_face_tracking\" translatable=\"false\">Face tracking</string>\r\n    <string name=\"pref_key_live_preview_face_detection_face_tracking\" translatable=\"false\">lpfdft</string>\r\n\r\n    <!-- Strings for face detector min face size preference. -->\r\n    <string name=\"pref_title_face_detector_min_face_size\" translatable=\"false\">Minimum face size</string>\r\n    <string name=\"pref_key_live_preview_face_detection_min_face_size\" translatable=\"false\">lpfdmfs</string>\r\n    <string name=\"pref_dialog_message_face_detector_min_face_size\" translatable=\"false\">Proportion of the head width to the image width, and the valid value range is [0.0, 1.0]</string>\r\n    <string name=\"pref_toast_invalid_min_face_size\" translatable=\"false\">Minimum face size must be a float value and in the range [0.0, 1.0]</string>\r\n\r\n    <!-- Strings for pose detector performance mode preference. -->\r\n    <string name=\"pref_title_pose_detector_performance_mode\" translatable=\"false\">Performance mode</string>\r\n    <string name=\"pref_key_live_preview_pose_detection_performance_mode\" translatable=\"false\">lppdpm</string>\r\n    <string name=\"pref_key_still_image_pose_detection_performance_mode\" translatable=\"false\">sipdpm</string>\r\n    <string name=\"pref_entries_pose_detector_performance_mode_fast\" translatable=\"false\">Fast</string>\r\n    <string name=\"pref_entries_pose_detector_performance_mode_accurate\" translatable=\"false\">Accurate</string>\r\n    <string name=\"pref_entry_values_pose_detector_performance_mode_fast\" translatable=\"false\">1</string>\r\n    <string name=\"pref_entry_values_pose_detector_performance_mode_accurate\" translatable=\"false\">2</string>\r\n\r\n    <!-- Strings for pose detector prefer gpu preference. -->\r\n    <string name=\"pref_title_pose_detector_prefer_gpu\" translatable=\"false\">Prefer using GPU</string>\r\n    <string name=\"pref_key_pose_detector_prefer_gpu\" translatable=\"false\">pdpg</string>\r\n    <string name=\"pref_summary_pose_detector_prefer_gpu\" translatable=\"false\">If enabled, GPU will be used as long as it is available, stable and returns correct results. In this case, the detector will not check if GPU is really faster than CPU.</string>\r\n\r\n    <!-- Strings for pose detector showInFrameLikelihood preference. -->\r\n    <string name=\"pref_title_pose_detector_show_in_frame_likelihood\" translatable=\"false\">Show in-frame likelihood</string>\r\n    <string name=\"pref_key_live_preview_pose_detector_show_in_frame_likelihood\" translatable=\"false\">lppdsifl</string>\r\n    <string name=\"pref_key_still_image_pose_detector_show_in_frame_likelihood\" translatable=\"false\">sipdsifl</string>\r\n\r\n    <!-- Strings for pose detector z value visualization preference. -->\r\n    <string name=\"pref_title_pose_detector_visualize_z\" translatable=\"false\">Visualize z value</string>\r\n    <string name=\"pref_key_pose_detector_visualize_z\" translatable=\"false\">pdvz</string>\r\n    <string name=\"pref_title_pose_detector_rescale_z\" translatable=\"false\">Rescale z value for visualization</string>\r\n    <string name=\"pref_key_pose_detector_rescale_z\" translatable=\"false\">pdrz</string>\r\n\r\n    <!-- Strings for pose classification preference. -->\r\n    <string name=\"pref_title_pose_detector_run_classification\" translatable=\"false\">Run Classification</string>\r\n    <string name=\"pref_key_pose_detector_run_classification\" translatable=\"false\">pdrc</string>\r\n    <string name=\"pref_summary_pose_detector_run_classification\" translatable=\"false\">Classify squat and pushup poses. Count reps in streaming mode. To get the best classification results based on the current sample data, face the camera side way and make sure your full body is in the frame.</string>\r\n\r\n    <!-- Strings for segmentation preference. -->\r\n    <string name=\"pref_title_segmentation_raw_size_mask\" translatable=\"false\">Enable raw size mask</string>\r\n    <string name=\"pref_key_segmentation_raw_size_mask\" translatable=\"false\">srsm</string>\r\n\r\n</resources>\r\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/app/src/main/res/values/strings.xml b/app/src/main/res/values/strings.xml
+--- a/app/src/main/res/values/strings.xml	(revision c48a821b4146655badfaf0d221109e9168627e02)
++++ b/app/src/main/res/values/strings.xml	(date 1653477035419)
+@@ -148,5 +148,6 @@
+     <!-- Strings for segmentation preference. -->
+     <string name="pref_title_segmentation_raw_size_mask" translatable="false">Enable raw size mask</string>
+     <string name="pref_key_segmentation_raw_size_mask" translatable="false">srsm</string>
++    <string name="save">Save</string>
+ 
+-</resources>
++</resources>
+\ No newline at end of file
+Index: .idea/libraries/Gradle__androidx_lifecycle_lifecycle_service_2_1_0_aar.xml
+===================================================================
+diff --git a/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_service_2_1_0_aar.xml b/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_service_2_1_0_aar.xml
+deleted file mode 100644
+--- a/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_service_2_1_0_aar.xml	(revision c48a821b4146655badfaf0d221109e9168627e02)
++++ /dev/null	(revision c48a821b4146655badfaf0d221109e9168627e02)
+@@ -1,13 +0,0 @@
+-<component name="libraryTable">
+-  <library name="Gradle: androidx.lifecycle:lifecycle-service:2.1.0@aar">
+-    <CLASSES>
+-      <root url="jar://$USER_HOME$/.gradle/caches/transforms-3/df416d57cce4fd2e74817ab5fa7af572/transformed/jetified-lifecycle-service-2.1.0/jars/classes.jar!/" />
+-      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/df416d57cce4fd2e74817ab5fa7af572/transformed/jetified-lifecycle-service-2.1.0/res" />
+-      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/df416d57cce4fd2e74817ab5fa7af572/transformed/jetified-lifecycle-service-2.1.0/AndroidManifest.xml" />
+-    </CLASSES>
+-    <JAVADOC />
+-    <SOURCES>
+-      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/androidx.lifecycle/lifecycle-service/2.1.0/8fea0db3aaed284d86f63be3977c01b156585cb2/lifecycle-service-2.1.0-sources.jar!/" />
+-    </SOURCES>
+-  </library>
+-</component>
+\ No newline at end of file
+Index: .idea/libraries/Gradle__androidx_lifecycle_lifecycle_extensions_2_1_0_aar.xml
+===================================================================
+diff --git a/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_extensions_2_1_0_aar.xml b/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_extensions_2_1_0_aar.xml
+deleted file mode 100644
+--- a/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_extensions_2_1_0_aar.xml	(revision c48a821b4146655badfaf0d221109e9168627e02)
++++ /dev/null	(revision c48a821b4146655badfaf0d221109e9168627e02)
+@@ -1,13 +0,0 @@
+-<component name="libraryTable">
+-  <library name="Gradle: androidx.lifecycle:lifecycle-extensions:2.1.0@aar">
+-    <CLASSES>
+-      <root url="jar://$USER_HOME$/.gradle/caches/transforms-3/e0208434db0071c35548cdd54f794352/transformed/lifecycle-extensions-2.1.0/jars/classes.jar!/" />
+-      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/e0208434db0071c35548cdd54f794352/transformed/lifecycle-extensions-2.1.0/res" />
+-      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/e0208434db0071c35548cdd54f794352/transformed/lifecycle-extensions-2.1.0/AndroidManifest.xml" />
+-    </CLASSES>
+-    <JAVADOC />
+-    <SOURCES>
+-      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/androidx.lifecycle/lifecycle-extensions/2.1.0/84e54bd949cf1843ddddfe3e005b4d3a1649d562/lifecycle-extensions-2.1.0-sources.jar!/" />
+-    </SOURCES>
+-  </library>
+-</component>
+\ No newline at end of file
+Index: .idea/libraries/Gradle__androidx_lifecycle_lifecycle_process_2_1_0_aar.xml
+===================================================================
+diff --git a/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_process_2_1_0_aar.xml b/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_process_2_1_0_aar.xml
+deleted file mode 100644
+--- a/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_process_2_1_0_aar.xml	(revision c48a821b4146655badfaf0d221109e9168627e02)
++++ /dev/null	(revision c48a821b4146655badfaf0d221109e9168627e02)
+@@ -1,13 +0,0 @@
+-<component name="libraryTable">
+-  <library name="Gradle: androidx.lifecycle:lifecycle-process:2.1.0@aar">
+-    <CLASSES>
+-      <root url="jar://$USER_HOME$/.gradle/caches/transforms-3/3bde3e886d148282b4a12512a1321dae/transformed/jetified-lifecycle-process-2.1.0/jars/classes.jar!/" />
+-      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/3bde3e886d148282b4a12512a1321dae/transformed/jetified-lifecycle-process-2.1.0/res" />
+-      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/3bde3e886d148282b4a12512a1321dae/transformed/jetified-lifecycle-process-2.1.0/AndroidManifest.xml" />
+-    </CLASSES>
+-    <JAVADOC />
+-    <SOURCES>
+-      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/androidx.lifecycle/lifecycle-process/2.1.0/a3ddd1911f2911de0d6d090f83e0f3441d398f6e/lifecycle-process-2.1.0-sources.jar!/" />
+-    </SOURCES>
+-  </library>
+-</component>
+\ No newline at end of file
+Index: .idea/libraries/Gradle__androidx_activity_activity_1_0_0_aar.xml
+===================================================================
+diff --git a/.idea/libraries/Gradle__androidx_activity_activity_1_0_0_aar.xml b/.idea/libraries/Gradle__androidx_activity_activity_1_0_0_aar.xml
+deleted file mode 100644
+--- a/.idea/libraries/Gradle__androidx_activity_activity_1_0_0_aar.xml	(revision c48a821b4146655badfaf0d221109e9168627e02)
++++ /dev/null	(revision c48a821b4146655badfaf0d221109e9168627e02)
+@@ -1,13 +0,0 @@
+-<component name="libraryTable">
+-  <library name="Gradle: androidx.activity:activity:1.0.0@aar">
+-    <CLASSES>
+-      <root url="jar://$USER_HOME$/.gradle/caches/transforms-3/59d99408e1ab962b6cb8772c801e2b5d/transformed/jetified-activity-1.0.0/jars/classes.jar!/" />
+-      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/59d99408e1ab962b6cb8772c801e2b5d/transformed/jetified-activity-1.0.0/res" />
+-      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/59d99408e1ab962b6cb8772c801e2b5d/transformed/jetified-activity-1.0.0/AndroidManifest.xml" />
+-    </CLASSES>
+-    <JAVADOC />
+-    <SOURCES>
+-      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/androidx.activity/activity/1.0.0/28eb83e6a29ac3fbb87aa632cfa0e644a313f491/activity-1.0.0-sources.jar!/" />
+-    </SOURCES>
+-  </library>
+-</component>
+\ No newline at end of file
+Index: .idea/libraries/Gradle__androidx_lifecycle_lifecycle_runtime_2_1_0_aar.xml
+===================================================================
+diff --git a/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_runtime_2_1_0_aar.xml b/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_runtime_2_1_0_aar.xml
+deleted file mode 100644
+--- a/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_runtime_2_1_0_aar.xml	(revision c48a821b4146655badfaf0d221109e9168627e02)
++++ /dev/null	(revision c48a821b4146655badfaf0d221109e9168627e02)
+@@ -1,13 +0,0 @@
+-<component name="libraryTable">
+-  <library name="Gradle: androidx.lifecycle:lifecycle-runtime:2.1.0@aar">
+-    <CLASSES>
+-      <root url="jar://$USER_HOME$/.gradle/caches/transforms-3/e867e4c87227db00458501d66eb714ec/transformed/lifecycle-runtime-2.1.0/jars/classes.jar!/" />
+-      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/e867e4c87227db00458501d66eb714ec/transformed/lifecycle-runtime-2.1.0/res" />
+-      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/e867e4c87227db00458501d66eb714ec/transformed/lifecycle-runtime-2.1.0/AndroidManifest.xml" />
+-    </CLASSES>
+-    <JAVADOC />
+-    <SOURCES>
+-      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/androidx.lifecycle/lifecycle-runtime/2.1.0/533a0cd1a095abbdfd08a49c4d34bd0713977034/lifecycle-runtime-2.1.0-sources.jar!/" />
+-    </SOURCES>
+-  </library>
+-</component>
+\ No newline at end of file
+Index: app/src/main/res/layout/activity_vision_camerax_live_preview.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n<androidx.constraintlayout.widget.ConstraintLayout\r\n    xmlns:android=\"http://schemas.android.com/apk/res/android\"\r\n    xmlns:app=\"http://schemas.android.com/apk/res-auto\"\r\n    android:layout_width=\"match_parent\"\r\n    android:layout_height=\"match_parent\"\r\n    android:keepScreenOn=\"true\">\r\n\r\n  <androidx.camera.view.PreviewView\r\n      android:id=\"@+id/preview_view\"\r\n      android:layout_width=\"match_parent\"\r\n      android:layout_height=\"0dp\"\r\n      app:layout_constraintTop_toTopOf=\"parent\"\r\n      app:layout_constraintBottom_toTopOf=\"@+id/control\"/>\r\n\r\n  <com.google.mlkit.vision.demo.GraphicOverlay\r\n      android:id=\"@+id/graphic_overlay\"\r\n      android:layout_width=\"0dp\"\r\n      android:layout_height=\"0dp\"\r\n      app:layout_constraintLeft_toLeftOf=\"@id/preview_view\"\r\n      app:layout_constraintRight_toRightOf=\"@id/preview_view\"\r\n      app:layout_constraintTop_toTopOf=\"@id/preview_view\"\r\n      app:layout_constraintBottom_toBottomOf=\"@id/preview_view\"/>\r\n\r\n  <include\r\n      android:id=\"@+id/settings_button\"\r\n      layout=\"@layout/settings_style\"\r\n      android:layout_width=\"wrap_content\"\r\n      android:layout_height=\"wrap_content\"\r\n      app:layout_constraintRight_toRightOf=\"@id/preview_view\"\r\n      app:layout_constraintTop_toTopOf=\"@id/preview_view\" />\r\n\r\n  <LinearLayout\r\n      android:id=\"@id/control\"\r\n      android:layout_width=\"match_parent\"\r\n      android:layout_height=\"60dp\"\r\n      app:layout_constraintBottom_toBottomOf=\"parent\"\r\n      android:background=\"#000\"\r\n      android:orientation=\"horizontal\">\r\n\r\n    <ToggleButton\r\n        android:id=\"@+id/facing_switch\"\r\n        android:layout_width=\"48dp\"\r\n        android:layout_height=\"48dp\"\r\n        android:layout_gravity=\"center_vertical\"\r\n        android:background=\"@layout/toggle_style\"\r\n        android:checked=\"false\"\r\n        android:textOff=\"\"\r\n        android:textOn=\"\"/>\r\n\r\n    <Spinner\r\n        android:id=\"@+id/spinner\"\r\n        android:layout_width=\"0dp\"\r\n        android:layout_weight=\"1\"\r\n        android:layout_height=\"wrap_content\"\r\n        android:layout_gravity=\"center\"/>\r\n\r\n  </LinearLayout>\r\n\r\n</androidx.constraintlayout.widget.ConstraintLayout>\r\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/app/src/main/res/layout/activity_vision_camerax_live_preview.xml b/app/src/main/res/layout/activity_vision_camerax_live_preview.xml
+--- a/app/src/main/res/layout/activity_vision_camerax_live_preview.xml	(revision c48a821b4146655badfaf0d221109e9168627e02)
++++ b/app/src/main/res/layout/activity_vision_camerax_live_preview.xml	(date 1653476677635)
+@@ -50,11 +50,18 @@
+ 
+     <Spinner
+         android:id="@+id/spinner"
+-        android:layout_width="0dp"
+-        android:layout_weight="1"
++        android:layout_width="302dp"
+         android:layout_height="wrap_content"
+-        android:layout_gravity="center"/>
++        android:layout_gravity="center"
++        android:layout_weight="1" />
++
++    <Button
++        android:id="@+id/button2"
++        android:layout_width="wrap_content"
++        android:layout_height="match_parent"
++        android:layout_weight="1"
++        android:text="@string/save" />
+ 
+   </LinearLayout>
+ 
+-</androidx.constraintlayout.widget.ConstraintLayout>
++</androidx.constraintlayout.widget.ConstraintLayout>
+\ No newline at end of file
+Index: .idea/libraries/Gradle__androidx_databinding_databinding_adapters_7_0_3_aar.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/libraries/Gradle__androidx_databinding_databinding_adapters_7_0_3_aar.xml b/.idea/libraries/Gradle__androidx_databinding_databinding_adapters_7_0_3_aar.xml
+new file mode 100644
+--- /dev/null	(date 1653369391996)
++++ b/.idea/libraries/Gradle__androidx_databinding_databinding_adapters_7_0_3_aar.xml	(date 1653369391996)
+@@ -0,0 +1,13 @@
++<component name="libraryTable">
++  <library name="Gradle: androidx.databinding:databinding-adapters:7.0.3@aar">
++    <CLASSES>
++      <root url="jar://$USER_HOME$/.gradle/caches/transforms-3/f55fd467b8049e94f60616c173ba8d3d/transformed/databinding-adapters-7.0.3/jars/classes.jar!/" />
++      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/f55fd467b8049e94f60616c173ba8d3d/transformed/databinding-adapters-7.0.3/res" />
++      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/f55fd467b8049e94f60616c173ba8d3d/transformed/databinding-adapters-7.0.3/AndroidManifest.xml" />
++    </CLASSES>
++    <JAVADOC />
++    <SOURCES>
++      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/androidx.databinding/databinding-adapters/7.0.3/4bc0b137b4367b6e128fefde6ab12b773ffb2eb6/databinding-adapters-7.0.3-sources.jar!/" />
++    </SOURCES>
++  </library>
++</component>
+\ No newline at end of file
+Index: .idea/libraries/Gradle__androidx_databinding_databinding_ktx_7_0_3_aar.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/libraries/Gradle__androidx_databinding_databinding_ktx_7_0_3_aar.xml b/.idea/libraries/Gradle__androidx_databinding_databinding_ktx_7_0_3_aar.xml
+new file mode 100644
+--- /dev/null	(date 1653369392036)
++++ b/.idea/libraries/Gradle__androidx_databinding_databinding_ktx_7_0_3_aar.xml	(date 1653369392036)
+@@ -0,0 +1,13 @@
++<component name="libraryTable">
++  <library name="Gradle: androidx.databinding:databinding-ktx:7.0.3@aar">
++    <CLASSES>
++      <root url="jar://$USER_HOME$/.gradle/caches/transforms-3/08e32e8ea12a58308d7f903017f79232/transformed/jetified-databinding-ktx-7.0.3/jars/classes.jar!/" />
++      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/08e32e8ea12a58308d7f903017f79232/transformed/jetified-databinding-ktx-7.0.3/res" />
++      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/08e32e8ea12a58308d7f903017f79232/transformed/jetified-databinding-ktx-7.0.3/AndroidManifest.xml" />
++    </CLASSES>
++    <JAVADOC />
++    <SOURCES>
++      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/androidx.databinding/databinding-ktx/7.0.3/1a30a33e0a9cf9ec4a289b4601a7723729544384/databinding-ktx-7.0.3-sources.jar!/" />
++    </SOURCES>
++  </library>
++</component>
+\ No newline at end of file
+Index: .idea/libraries/Gradle__androidx_databinding_databinding_common_7_0_3.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/libraries/Gradle__androidx_databinding_databinding_common_7_0_3.xml b/.idea/libraries/Gradle__androidx_databinding_databinding_common_7_0_3.xml
+new file mode 100644
+--- /dev/null	(date 1653369392017)
++++ b/.idea/libraries/Gradle__androidx_databinding_databinding_common_7_0_3.xml	(date 1653369392017)
+@@ -0,0 +1,13 @@
++<component name="libraryTable">
++  <library name="Gradle: androidx.databinding:databinding-common:7.0.3">
++    <CLASSES>
++      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/androidx.databinding/databinding-common/7.0.3/730ebf29182d79cb1085a58c4bf89cd0b17e8acf/databinding-common-7.0.3.jar!/" />
++    </CLASSES>
++    <JAVADOC>
++      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/androidx.databinding/databinding-common/7.0.3/e84dec13c40368cb0af076f985f280944fdbdad7/databinding-common-7.0.3-javadoc.jar!/" />
++    </JAVADOC>
++    <SOURCES>
++      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/androidx.databinding/databinding-common/7.0.3/831bce62be63c86cfdb9d3565f5620b97313d7bb/databinding-common-7.0.3-sources.jar!/" />
++    </SOURCES>
++  </library>
++</component>
+\ No newline at end of file
+Index: app/src/main/res/drawable/ic_shutter.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/app/src/main/res/drawable/ic_shutter.xml b/app/src/main/res/drawable/ic_shutter.xml
+new file mode 100644
+--- /dev/null	(date 1653476988634)
++++ b/app/src/main/res/drawable/ic_shutter.xml	(date 1653476988634)
+@@ -0,0 +1,11 @@
++<vector android:height="32dp" android:viewportHeight="512"
++    android:viewportWidth="512" android:width="32dp" xmlns:android="http://schemas.android.com/apk/res/android">
++    <path android:fillColor="#FF4C67" android:pathData="M257.086,0.545C116.3,0.545 2.171,114.675 2.171,255.46S116.3,510.374 257.086,510.374S512,396.245 512,255.46S397.871,0.545 257.086,0.545zM355.228,312.751l-99.222,57.291h-0.011l-99.222,-57.291V198.169l99.233,-57.291l99.222,57.291V312.751z"/>
++    <path android:fillColor="#B3D662" android:pathData="M355.228,312.751v178.753c-30.514,12.854 -64.042,19.95 -99.222,19.95c-58.155,0 -111.784,-19.389 -154.763,-52.074l154.753,-89.339h0.011L355.228,312.751z"/>
++    <path android:fillColor="#D91E3B" android:pathData="M257.086,0.545c-0.361,0 -0.719,0.012 -1.08,0.014v140.319l99.222,57.291v114.582l-99.222,57.291V510.36c0.361,0.001 0.719,0.014 1.08,0.014C397.871,510.374 512,396.245 512,255.46S397.871,0.545 257.086,0.545z"/>
++    <path android:fillColor="#8AD8ED" android:pathData="M156.772,21.025v293.346L1.987,225C13.513,132.788 74.087,55.817 156.772,21.025z"/>
++    <path android:fillColor="#27B5D1" android:pathData="M255.995,370.042l-154.753,89.339C39.717,412.643 0,338.685 0,255.46c0,-10.866 0.68,-21.571 1.987,-32.08l154.785,89.371L255.995,370.042z"/>
++    <path android:fillColor="#FFD059" android:pathData="M510.013,287.519c-11.525,92.223 -72.1,169.194 -154.785,203.986V198.169L510.013,287.519z"/>
++    <path android:fillColor="#FE872B" android:pathData="M512,255.46c0,10.855 -0.681,21.56 -1.987,32.059l-154.785,-89.35l-99.222,-57.291l154.753,-89.35C472.283,98.266 512,172.224 512,255.46z"/>
++    <path android:fillColor="#5DAD2F" android:pathData="M355.228,490.784V312.751l-99.222,57.291V510.36c0.361,0.001 0.719,0.014 1.08,0.014C291.868,510.374 325.018,503.398 355.228,490.784z"/>
++</vector>
+\ No newline at end of file
+Index: .idea/modules/app/ML_Kit_Vision_Quickstart.app.iml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n<module external.linked.project.id=\":app\" external.linked.project.path=\"$MODULE_DIR$/../../../app\" external.root.project.path=\"$MODULE_DIR$/../../..\" external.system.id=\"GRADLE\" external.system.module.group=\"ML Kit Vision Quickstart\" external.system.module.version=\"unspecified\" type=\"JAVA_MODULE\" version=\"4\">\r\n  <component name=\"FacetManager\">\r\n    <facet type=\"android-gradle\" name=\"Android-Gradle\">\r\n      <configuration>\r\n        <option name=\"GRADLE_PROJECT_PATH\" value=\":app\" />\r\n        <option name=\"LAST_SUCCESSFUL_SYNC_AGP_VERSION\" />\r\n        <option name=\"LAST_KNOWN_AGP_VERSION\" value=\"7.0.3\" />\r\n      </configuration>\r\n    </facet>\r\n    <facet type=\"kotlin-language\" name=\"Kotlin\">\r\n      <configuration version=\"4\" platform=\"JVM 1.8\" allPlatforms=\"JVM [1.8]\" useProjectSettings=\"false\">\r\n        <compilerSettings>\r\n          <option name=\"additionalArguments\" value=\"-Xallow-no-source-files\" />\r\n        </compilerSettings>\r\n        <compilerArguments>\r\n          <option name=\"destination\" value=\"$MODULE_DIR$/../../../app/build/tmp/kotlin-classes/debug\" />\r\n          <option name=\"classpath\" value=\"$MODULE_DIR$/../../../app/build/intermediates/compile_and_runtime_not_namespaced_r_class_jar/debug/R.jar;C:/Users/권희연/.gradle/caches/transforms-3/fc9c35061f125cbb33a0346d63a643ea/transformed/jetified-kotlin-android-extensions-runtime-1.5.31.jar;C:/Users/권희연/.gradle/caches/transforms-3/921439b56a0ed1dbbef6b811577062bb/transformed/jetified-pose-detection-18.0.0-beta2-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/db4fbf8b6c20441dc6dde0c47fbc939b/transformed/jetified-pose-detection-accurate-18.0.0-beta2-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/bdd24597bd8d1641d9a04476f80e83a8/transformed/jetified-pose-detection-common-18.0.0-beta2-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/3506f8d43a5ad2aaef451f26e691fd5f/transformed/jetified-acceleration-16.0.0-beta1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/1de796c11b5ada1f08dcdc1793bfe32a/transformed/jetified-work-multiprocess-2.7.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/2399bee93c4781e7b857928e394b57e3/transformed/work-runtime-ktx-2.7.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/2267828675ab1261afa4ec72ee86528b/transformed/jetified-kotlinx-coroutines-android-1.5.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/0c36829101764e246282651378fe64b7/transformed/jetified-kotlinx-coroutines-core-jvm-1.5.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/73936d88bd7d1ed95b227e6fdafc358d/transformed/jetified-kotlin-stdlib-jdk8-1.5.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/d08fde999f445357f27a1b683052f66a/transformed/jetified-kotlin-stdlib-jdk7-1.5.31.jar;C:/Users/권희연/.gradle/caches/transforms-3/ee992cb84eafc4921aca12e6ee044544/transformed/jetified-kotlin-stdlib-1.5.31.jar;C:/Users/권희연/.gradle/caches/transforms-3/80f12aeb6f19fa6e5533fe1a28208808/transformed/jetified-annotations-13.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/afdcd2d66e7a2f17efe4836e65bc72c2/transformed/jetified-kotlin-stdlib-common-1.5.31.jar;C:/Users/권희연/.gradle/caches/transforms-3/df467b1db4410583864abe09a3646247/transformed/multidex-2.0.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/c0e493163572e7f4868f6541539d32fd/transformed/jetified-barcode-scanning-17.0.2-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/f174a20b06e11ae6ab01090188d0c167/transformed/jetified-object-detection-17.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/078893b2a756117ece91e133a98b0470/transformed/jetified-object-detection-custom-17.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/6cff6d2d1020584412ae14b2cc3bc3f8/transformed/jetified-face-detection-16.1.5-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/97a2c7d82db161e5ea409024c69d7eac/transformed/jetified-play-services-mlkit-text-recognition-18.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/2d1969f26c51cd2ef2116e639de0cd18/transformed/jetified-text-recognition-chinese-16.0.0-beta3-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/dcf4c1685cb930f698d5fd15b8ca51a0/transformed/jetified-text-recognition-devanagari-16.0.0-beta3-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/560ac2b9b322f009e20cba95018ca673/transformed/jetified-text-recognition-japanese-16.0.0-beta3-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/f9e8c543232e888c5d6325109cfa265b/transformed/jetified-text-recognition-korean-16.0.0-beta3-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/c18aa4490536d351cc16e681b552d1dc/transformed/jetified-image-labeling-17.0.7-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/3fe5ad09bda737e9ae53f0fa02d37fa0/transformed/jetified-image-labeling-custom-17.0.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/66b3b2f5ef1a28c6741392c1322c711e/transformed/jetified-segmentation-selfie-16.0.0-beta4-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/1489f6edf74ab707735c0354abeccda7/transformed/jetified-camera-16.0.0-beta3-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/962c78b825706dd68933c38df1cc098c/transformed/jetified-play-services-mlkit-barcode-scanning-18.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/13af3c4e9fd59689d763f32b79dd2ff8/transformed/jetified-barcode-scanning-common-17.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/15797ca6c894cb1b83f42efe70eb9a06/transformed/jetified-object-detection-common-18.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/a3a3047d35932848df0633c902f7b1fb/transformed/jetified-vision-internal-vkp-18.2.2-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/9044f87689b2796b631ef72e2cdfbcc9/transformed/jetified-play-services-mlkit-face-detection-17.0.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/79e956b916dfd559df0e9aa1c2a5a24d/transformed/jetified-play-services-mlkit-text-recognition-common-17.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/68083c48e720e1e59e2ad85a9ef0bfcb/transformed/jetified-text-recognition-bundled-common-16.0.0-beta3-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/7ee36678e482bbcd20be46ac0379edb4/transformed/jetified-image-labeling-default-common-17.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/d924c1ba8bbb5b31888a220b7d7df0c8/transformed/jetified-image-labeling-custom-common-17.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/c029a99c5ec4e37537c2631de0dff9ad/transformed/jetified-image-labeling-common-18.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/8bb10bf2d88d9c7500aa6ecf1491ed54/transformed/jetified-mediapipe-internal-17.0.0-beta7-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/b3ebb0924ff7eadf47c634b27d213925/transformed/jetified-vision-common-17.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/847c296e0e9394e8f8291c416f93ddfa/transformed/jetified-common-18.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/96fcd3f628c4b54e8fb0750e5bcb1cdb/transformed/jetified-play-services-base-18.0.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/1eaf20a475429e7d44c82732f213c877/transformed/jetified-vision-interfaces-16.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/5be76b873d52bd02b9106e5735cf3086/transformed/jetified-play-services-tasks-18.0.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/f40c14b0e2e1af2fd6ec7d4438adf8d6/transformed/jetified-play-services-basement-18.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/d0dd21339ce8acf95079d53d9c14c648/transformed/constraintlayout-2.0.4-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/d670b4ed9e07204acae7503ac69b89c9/transformed/appcompat-1.2.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/a7bedac7d9da81758aa9719d8caa90ef/transformed/lifecycle-extensions-2.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/ae83d6d8708284f4615336e781593fb6/transformed/fragment-1.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/988ca8bdd4900e84f602c1d5cccd664d/transformed/jetified-appcompat-resources-1.2.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/81e8944d228f1b67a6b194bd9ec8ca08/transformed/drawerlayout-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/1e6e4b8bed71ee1d4b3cd906e571b8fb/transformed/viewpager-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/260578ec8f72b9345c9e5f994e7af75e/transformed/loader-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/1f0906bdef6120c6140d9367311f2c9a/transformed/jetified-activity-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/4f7a256cb95de13e431a252022c8cd34/transformed/vectordrawable-animated-1.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/c295a15d76d4555dcbf86edc9971e4fe/transformed/vectordrawable-1.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/a726e8089f03ea4ae3d7147a4ce8cdee/transformed/customview-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/ac3dcd7085d7bd77abffb82f79f9f4a8/transformed/core-1.6.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/34b5c953146cb8896e830af8ff8b9b75/transformed/versionedparcelable-1.1.1-api.jar;C:/Users/권희연/.gradle/caches/modules-2/files-2.1/androidx.collection/collection/1.1.0/1f27220b47669781457de0d600849a5de0e89909/collection-1.1.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/d26137a10bc30d8e47cad6cde86029e9/transformed/lifecycle-viewmodel-2.3.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/a638359d22b48f7b47808cd5fb13d7c1/transformed/jetified-camera-camera2-1.0.0-SNAPSHOT-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/87b1178d9a757d11430013e17dafde65/transformed/jetified-camera-view-1.0.0-SNAPSHOT-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/7a12b540b2564139347ffc3481dbdd09/transformed/jetified-transport-backend-cct-2.3.3-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/7f6746d93bf36de690280cddd947468d/transformed/jetified-transport-runtime-2.2.6-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/cd625266f69ef936ba946df0378db92b/transformed/jetified-transport-api-2.2.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/63bf895d9f845d05f7ef578ba95879a6/transformed/jetified-firebase-components-16.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/041724454c105047685aa5bf799c0683/transformed/jetified-firebase-encoders-json-17.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/0ec8cadb04e6635abc96164be1b68b0f/transformed/jetified-firebase-encoders-16.1.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/f1e98eca4a60c6807a1d6e4baaa2cebf/transformed/jetified-camera-lifecycle-1.0.0-SNAPSHOT-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/d7fb833351e381d30ab3415ec07d2059/transformed/jetified-camera-core-1.0.0-SNAPSHOT-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/0962f6df7e3a5ddff7114cd254265814/transformed/work-runtime-2.7.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/593ebaf0b89987fe17fdba0216567783/transformed/lifecycle-livedata-2.3.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/6394811f2099becd4939560c7931cab8/transformed/core-runtime-2.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/9990b18ee1b42b3584142aa5788aed63/transformed/cursoradapter-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/62592ee2e441eefefa7a62dc44a686b7/transformed/lifecycle-livedata-core-2.3.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/cee24b4c18619871348488af3f66f46c/transformed/jetified-lifecycle-process-2.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/e80d1b89ae053844831d0b1e9453b9d6/transformed/jetified-lifecycle-service-2.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/51d6581c37133259ceab8133b219c25e/transformed/lifecycle-runtime-2.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/9c0c9961ac63f4750a9cfc8a84936f28/transformed/jetified-savedstate-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/modules-2/files-2.1/androidx.lifecycle/lifecycle-common/2.3.1/fc466261d52f4433863642fb40d12441ae274a98/lifecycle-common-2.3.1.jar;C:/Users/권희연/.gradle/caches/transforms-3/3615767d4eabbf9fa88bd3a865954e81/transformed/exifinterface-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/modules-2/files-2.1/androidx.arch.core/core-common/2.1.0/b3152fc64428c9354344bd89848ecddc09b6f07e/core-common-2.1.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/7726387bafdd612f83ae8f4dbc79ec66/transformed/interpolator-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/modules-2/files-2.1/androidx.annotation/annotation/1.2.0/57136ff68ee784c6e19db34ed4a175338fadfde1/annotation-1.2.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/9e0c85cc776e1faa7a73c85e1f2232aa/transformed/jetified-annotation-experimental-1.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/511369e2086b95d8dd0abb917229aeec/transformed/jetified-javax.inject-1.jar;C:/Users/권희연/.gradle/caches/transforms-3/d1e03a429a578dbaef83c6d3dcdb999d/transformed/jetified-image-1.0.0-beta1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/044eacf657b8281f58856ef03ce8d849/transformed/jetified-firebase-annotations-16.0.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/2ea922c7be39dd1e498e02f2ce7cba88/transformed/jetified-okhttp-3.0.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/b1913613a75413cc4a7faab052c92dd1/transformed/jetified-okio-1.6.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/c229c31a8b96a061fcf355c241b150ab/transformed/jetified-startup-runtime-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/67b5a03a1c263e9c08848deccf3192d1/transformed/jetified-guava-29.0-android.jar;C:/Users/권희연/.gradle/caches/transforms-3/5aaa4987d78bc499a8fe9f1aeb1550b4/transformed/jetified-failureaccess-1.0.1.jar;C:/Users/권희연/.gradle/caches/transforms-3/adba0ab4e21f05b8a7a3c4c6060b72e9/transformed/jetified-jsr305-3.0.2.jar;C:/Users/권희연/.gradle/caches/transforms-3/ddbcfc008a50156a7915b8e2666eac67/transformed/jetified-checker-compat-qual-2.5.5.jar;C:/Users/권희연/.gradle/caches/transforms-3/a085d6de1b5cdea6c67524be32c8839e/transformed/jetified-error_prone_annotations-2.3.4.jar;C:/Users/권희연/.gradle/caches/transforms-3/f49a9da7169727b15c226526a1fcb0ce/transformed/jetified-j2objc-annotations-1.3.jar;C:/Users/권희연/.gradle/caches/transforms-3/53c25ea72fd6dd880d191ea161dfd4b1/transformed/jetified-gson-2.8.6.jar;C:/Users/권희연/.gradle/caches/modules-2/files-2.1/androidx.constraintlayout/constraintlayout-solver/2.0.4/1f001d7db280a89a6c26b26a66eb064bb6d5efeb/constraintlayout-solver-2.0.4.jar;C:/AndroidStudio/platforms/android-31/android.jar;C:/AndroidStudio/build-tools/30.0.2/core-lambda-stubs.jar\" />\r\n          <option name=\"noStdlib\" value=\"true\" />\r\n          <option name=\"noReflect\" value=\"true\" />\r\n          <option name=\"moduleName\" value=\"vision-quickstart_debug\" />\r\n          <option name=\"languageVersion\" value=\"1.5\" />\r\n          <option name=\"apiVersion\" value=\"1.5\" />\r\n          <option name=\"pluginOptions\">\r\n            <array>\r\n              <option value=\"plugin:org.jetbrains.kotlin.android:experimental=false\" />\r\n              <option value=\"plugin:org.jetbrains.kotlin.android:enabled=true\" />\r\n              <option value=\"plugin:org.jetbrains.kotlin.android:defaultCacheImplementation=hashMap\" />\r\n            </array>\r\n          </option>\r\n          <option name=\"pluginClasspaths\">\r\n            <array>\r\n              <option value=\"$USER_HOME$/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-android-extensions/1.5.31/456e0dc14697585295a253d9c0336f0f5de7b1c1/kotlin-android-extensions-1.5.31.jar\" />\r\n              <option value=\"$USER_HOME$/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-compiler-embeddable/1.5.31/cc18c29253541dc57c25c3ef514d63c7953ae1a6/kotlin-compiler-embeddable-1.5.31.jar\" />\r\n              <option value=\"$USER_HOME$/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-reflect/1.5.31/1523fcd842a47da0820cea772b19c51056fec8a9/kotlin-reflect-1.5.31.jar\" />\r\n              <option value=\"$USER_HOME$/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib/1.5.31/6628d61d0f5603568e72d2d5915d2c034b4f1c55/kotlin-stdlib-1.5.31.jar\" />\r\n              <option value=\"$USER_HOME$/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-script-runtime/1.5.31/aaea854be2cfc06373dfc11be5a6ba9ca5ca84a6/kotlin-script-runtime-1.5.31.jar\" />\r\n              <option value=\"$USER_HOME$/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-daemon-embeddable/1.5.31/d19b549661e28c62781683dc7c7e34bf416974f1/kotlin-daemon-embeddable-1.5.31.jar\" />\r\n              <option value=\"$USER_HOME$/.gradle/caches/modules-2/files-2.1/org.jetbrains.intellij.deps/trove4j/1.0.20181211/216c2e14b070f334479d800987affe4054cd563f/trove4j-1.0.20181211.jar\" />\r\n              <option value=\"$USER_HOME$/.gradle/caches/modules-2/files-2.1/org.jetbrains/annotations/13.0/919f0dfe192fb4e063e7dacadee7f8bb9a2672a9/annotations-13.0.jar\" />\r\n              <option value=\"$USER_HOME$/.gradle/caches/modules-2/files-2.1/org.jetbrains.kotlin/kotlin-stdlib-common/1.5.31/43331609c7de811fed085e0dfd150874b157c32/kotlin-stdlib-common-1.5.31.jar\" />\r\n            </array>\r\n          </option>\r\n          <option name=\"errors\">\r\n            <ArgumentParseErrors />\r\n          </option>\r\n        </compilerArguments>\r\n      </configuration>\r\n    </facet>\r\n    <facet type=\"android\" name=\"Android\">\r\n      <configuration>\r\n        <option name=\"SELECTED_BUILD_VARIANT\" value=\"debug\" />\r\n        <option name=\"ASSEMBLE_TASK_NAME\" value=\"assembleDebug\" />\r\n        <option name=\"COMPILE_JAVA_TASK_NAME\" value=\"compileDebugSources\" />\r\n        <afterSyncTasks>\r\n          <task>generateDebugSources</task>\r\n        </afterSyncTasks>\r\n        <option name=\"ALLOW_USER_CONFIGURATION\" value=\"false\" />\r\n        <option name=\"MANIFEST_FILE_RELATIVE_PATH\" value=\"/src/main/AndroidManifest.xml\" />\r\n        <option name=\"RES_FOLDER_RELATIVE_PATH\" value=\"/src/main/res\" />\r\n        <option name=\"RES_FOLDERS_RELATIVE_PATH\" value=\"file://$MODULE_DIR$/../../../app/src/main/res;file://$MODULE_DIR$/../../../app/src/debug/res;file://$MODULE_DIR$/../../../app/build/generated/res/rs/debug;file://$MODULE_DIR$/../../../app/build/generated/res/resValues/debug\" />\r\n        <option name=\"TEST_RES_FOLDERS_RELATIVE_PATH\" value=\"file://$MODULE_DIR$/../../../app/src/androidTest/res;file://$MODULE_DIR$/../../../app/src/androidTestDebug/res;file://$MODULE_DIR$/../../../app/build/generated/res/rs/androidTest/debug;file://$MODULE_DIR$/../../../app/build/generated/res/resValues/androidTest/debug\" />\r\n        <option name=\"ASSETS_FOLDER_RELATIVE_PATH\" value=\"/src/main/assets\" />\r\n      </configuration>\r\n    </facet>\r\n  </component>\r\n  <component name=\"NewModuleRootManager\" LANGUAGE_LEVEL=\"JDK_1_8\">\r\n    <output url=\"file://$MODULE_DIR$/../../../app/build/intermediates/javac/debug/classes\" />\r\n    <output-test url=\"file://$MODULE_DIR$/../../../app/build/intermediates/javac/debugUnitTest/classes\" />\r\n    <exclude-output />\r\n    <content url=\"file://$MODULE_DIR$/../../../app\">\r\n      <sourceFolder url=\"file://$MODULE_DIR$/../../../app/build/generated/ap_generated_sources/debug/out\" isTestSource=\"false\" generated=\"true\" />\r\n      <sourceFolder url=\"file://$MODULE_DIR$/../../../app/build/generated/res/resValues/debug\" type=\"java-resource\" />\r\n      <sourceFolder url=\"file://$MODULE_DIR$/../../../app/build/generated/source/buildConfig/debug\" isTestSource=\"false\" generated=\"true\" />\r\n      <sourceFolder url=\"file://$MODULE_DIR$/../../../app/src/main/assets\" type=\"java-resource\" />\r\n      <sourceFolder url=\"file://$MODULE_DIR$/../../../app/src/main/java\" isTestSource=\"false\" />\r\n      <sourceFolder url=\"file://$MODULE_DIR$/../../../app/src/main/res\" type=\"java-resource\" />\r\n      <excludeFolder url=\"file://$MODULE_DIR$/../../../app/.gradle\" />\r\n      <excludeFolder url=\"file://$MODULE_DIR$/../../../app/build\" />\r\n    </content>\r\n    <orderEntry type=\"jdk\" jdkName=\"Android API 31 Platform\" jdkType=\"Android SDK\" />\r\n    <orderEntry type=\"sourceFolder\" forTests=\"false\" />\r\n    <orderEntry type=\"library\" scope=\"TEST\" name=\"Gradle: junit:junit:4.12\" level=\"project\" />\r\n    <orderEntry type=\"library\" scope=\"TEST\" name=\"Gradle: org.hamcrest:hamcrest-core:1.3\" level=\"project\" />\r\n    <orderEntry type=\"library\" scope=\"TEST\" name=\"Gradle: androidx.test.ext:junit:1.1.3@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" scope=\"TEST\" name=\"Gradle: androidx.test:core:1.4.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" scope=\"TEST\" name=\"Gradle: androidx.test:rules:1.4.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" scope=\"TEST\" name=\"Gradle: androidx.test:runner:1.4.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" scope=\"TEST\" name=\"Gradle: androidx.test.services:storage:1.4.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" scope=\"TEST\" name=\"Gradle: androidx.test:monitor:1.4.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" scope=\"TEST\" name=\"Gradle: androidx.core:core:1.3.1@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" scope=\"TEST\" name=\"Gradle: androidx.versionedparcelable:versionedparcelable:1.1.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" scope=\"TEST\" name=\"Gradle: androidx.annotation:annotation-experimental:1.0.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: org.jetbrains.kotlin:kotlin-android-extensions-runtime:1.5.31\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: org.jetbrains.kotlinx:kotlinx-coroutines-android:1.5.0\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.5.0\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.5.0\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.5.31\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: org.jetbrains.kotlin:kotlin-stdlib:1.5.31\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: org.jetbrains:annotations:13.0\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: org.jetbrains.kotlin:kotlin-stdlib-common:1.5.31\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.collection:collection:1.1.0\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.firebase:firebase-encoders:16.1.0\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.lifecycle:lifecycle-common:2.3.1\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.arch.core:core-common:2.1.0\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.annotation:annotation:1.2.0\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: javax.inject:javax.inject:1\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.firebase:firebase-annotations:16.0.0\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.squareup.okhttp3:okhttp:3.0.0\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.squareup.okio:okio:1.6.0\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.guava:guava:29.0-android\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.guava:failureaccess:1.0.1\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.code.findbugs:jsr305:3.0.2\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: org.checkerframework:checker-compat-qual:2.5.5\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.errorprone:error_prone_annotations:2.3.4\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.j2objc:j2objc-annotations:1.3\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.code.gson:gson:2.8.6\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.constraintlayout:constraintlayout-solver:2.0.4\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:pose-detection:18.0.0-beta2@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:pose-detection-accurate:18.0.0-beta2@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:pose-detection-common:18.0.0-beta2@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:acceleration:16.0.0-beta1@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.work:work-multiprocess:2.7.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.work:work-runtime-ktx:2.7.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.multidex:multidex:2.0.1@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:barcode-scanning:17.0.2@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:object-detection:17.0.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:object-detection-custom:17.0.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:face-detection:16.1.5@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.android.gms:play-services-mlkit-text-recognition:18.0.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:text-recognition-chinese:16.0.0-beta3@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:text-recognition-devanagari:16.0.0-beta3@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:text-recognition-japanese:16.0.0-beta3@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:text-recognition-korean:16.0.0-beta3@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:image-labeling:17.0.7@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:image-labeling-custom:17.0.1@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:segmentation-selfie:16.0.0-beta4@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:camera:16.0.0-beta3@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.android.gms:play-services-mlkit-barcode-scanning:18.0.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:barcode-scanning-common:17.0.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:object-detection-common:18.0.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:vision-internal-vkp:18.2.2@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.android.gms:play-services-mlkit-face-detection:17.0.1@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.android.gms:play-services-mlkit-text-recognition-common:17.0.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:text-recognition-bundled-common:16.0.0-beta3@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:image-labeling-default-common:17.0.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:image-labeling-custom-common:17.0.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:image-labeling-common:18.0.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:mediapipe-internal:17.0.0-beta7@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:vision-common:17.1.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:common:18.1.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.android.gms:play-services-base:18.0.1@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.mlkit:vision-interfaces:16.0.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.android.gms:play-services-tasks:18.0.1@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.android.gms:play-services-basement:18.0.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.constraintlayout:constraintlayout:2.0.4@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.appcompat:appcompat:1.2.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.lifecycle:lifecycle-extensions:2.1.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.fragment:fragment:1.1.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.appcompat:appcompat-resources:1.2.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.drawerlayout:drawerlayout:1.0.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.viewpager:viewpager:1.0.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.loader:loader:1.0.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.activity:activity:1.0.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.vectordrawable:vectordrawable-animated:1.1.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.vectordrawable:vectordrawable:1.1.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.customview:customview:1.0.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.core:core:1.6.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.versionedparcelable:versionedparcelable:1.1.1@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.lifecycle:lifecycle-viewmodel:2.3.1@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.camera:camera-camera2:1.0.0-SNAPSHOT@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.camera:camera-view:1.0.0-SNAPSHOT@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.android.datatransport:transport-backend-cct:2.3.3@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.android.datatransport:transport-runtime:2.2.6@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.android.datatransport:transport-api:2.2.1@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.firebase:firebase-components:16.1.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.firebase:firebase-encoders-json:17.1.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.camera:camera-lifecycle:1.0.0-SNAPSHOT@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.camera:camera-core:1.0.0-SNAPSHOT@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.work:work-runtime:2.7.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.lifecycle:lifecycle-livedata:2.3.1@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.arch.core:core-runtime:2.1.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.cursoradapter:cursoradapter:1.0.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.lifecycle:lifecycle-livedata-core:2.3.1@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.lifecycle:lifecycle-process:2.1.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.lifecycle:lifecycle-service:2.1.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.lifecycle:lifecycle-runtime:2.1.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.savedstate:savedstate:1.0.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.exifinterface:exifinterface:1.0.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.interpolator:interpolator:1.0.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.annotation:annotation-experimental:1.1.0@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: com.google.android.odml:image:1.0.0-beta1@aar\" level=\"project\" />\r\n    <orderEntry type=\"library\" name=\"Gradle: androidx.startup:startup-runtime:1.0.0@aar\" level=\"project\" />\r\n  </component>\r\n</module>
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/modules/app/ML_Kit_Vision_Quickstart.app.iml b/.idea/modules/app/ML_Kit_Vision_Quickstart.app.iml
+--- a/.idea/modules/app/ML_Kit_Vision_Quickstart.app.iml	(revision c48a821b4146655badfaf0d221109e9168627e02)
++++ b/.idea/modules/app/ML_Kit_Vision_Quickstart.app.iml	(date 1653369402006)
+@@ -4,7 +4,7 @@
+     <facet type="android-gradle" name="Android-Gradle">
+       <configuration>
+         <option name="GRADLE_PROJECT_PATH" value=":app" />
+-        <option name="LAST_SUCCESSFUL_SYNC_AGP_VERSION" />
++        <option name="LAST_SUCCESSFUL_SYNC_AGP_VERSION" value="7.0.3" />
+         <option name="LAST_KNOWN_AGP_VERSION" value="7.0.3" />
+       </configuration>
+     </facet>
+@@ -15,7 +15,7 @@
+         </compilerSettings>
+         <compilerArguments>
+           <option name="destination" value="$MODULE_DIR$/../../../app/build/tmp/kotlin-classes/debug" />
+-          <option name="classpath" value="$MODULE_DIR$/../../../app/build/intermediates/compile_and_runtime_not_namespaced_r_class_jar/debug/R.jar;C:/Users/권희연/.gradle/caches/transforms-3/fc9c35061f125cbb33a0346d63a643ea/transformed/jetified-kotlin-android-extensions-runtime-1.5.31.jar;C:/Users/권희연/.gradle/caches/transforms-3/921439b56a0ed1dbbef6b811577062bb/transformed/jetified-pose-detection-18.0.0-beta2-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/db4fbf8b6c20441dc6dde0c47fbc939b/transformed/jetified-pose-detection-accurate-18.0.0-beta2-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/bdd24597bd8d1641d9a04476f80e83a8/transformed/jetified-pose-detection-common-18.0.0-beta2-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/3506f8d43a5ad2aaef451f26e691fd5f/transformed/jetified-acceleration-16.0.0-beta1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/1de796c11b5ada1f08dcdc1793bfe32a/transformed/jetified-work-multiprocess-2.7.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/2399bee93c4781e7b857928e394b57e3/transformed/work-runtime-ktx-2.7.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/2267828675ab1261afa4ec72ee86528b/transformed/jetified-kotlinx-coroutines-android-1.5.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/0c36829101764e246282651378fe64b7/transformed/jetified-kotlinx-coroutines-core-jvm-1.5.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/73936d88bd7d1ed95b227e6fdafc358d/transformed/jetified-kotlin-stdlib-jdk8-1.5.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/d08fde999f445357f27a1b683052f66a/transformed/jetified-kotlin-stdlib-jdk7-1.5.31.jar;C:/Users/권희연/.gradle/caches/transforms-3/ee992cb84eafc4921aca12e6ee044544/transformed/jetified-kotlin-stdlib-1.5.31.jar;C:/Users/권희연/.gradle/caches/transforms-3/80f12aeb6f19fa6e5533fe1a28208808/transformed/jetified-annotations-13.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/afdcd2d66e7a2f17efe4836e65bc72c2/transformed/jetified-kotlin-stdlib-common-1.5.31.jar;C:/Users/권희연/.gradle/caches/transforms-3/df467b1db4410583864abe09a3646247/transformed/multidex-2.0.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/c0e493163572e7f4868f6541539d32fd/transformed/jetified-barcode-scanning-17.0.2-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/f174a20b06e11ae6ab01090188d0c167/transformed/jetified-object-detection-17.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/078893b2a756117ece91e133a98b0470/transformed/jetified-object-detection-custom-17.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/6cff6d2d1020584412ae14b2cc3bc3f8/transformed/jetified-face-detection-16.1.5-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/97a2c7d82db161e5ea409024c69d7eac/transformed/jetified-play-services-mlkit-text-recognition-18.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/2d1969f26c51cd2ef2116e639de0cd18/transformed/jetified-text-recognition-chinese-16.0.0-beta3-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/dcf4c1685cb930f698d5fd15b8ca51a0/transformed/jetified-text-recognition-devanagari-16.0.0-beta3-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/560ac2b9b322f009e20cba95018ca673/transformed/jetified-text-recognition-japanese-16.0.0-beta3-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/f9e8c543232e888c5d6325109cfa265b/transformed/jetified-text-recognition-korean-16.0.0-beta3-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/c18aa4490536d351cc16e681b552d1dc/transformed/jetified-image-labeling-17.0.7-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/3fe5ad09bda737e9ae53f0fa02d37fa0/transformed/jetified-image-labeling-custom-17.0.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/66b3b2f5ef1a28c6741392c1322c711e/transformed/jetified-segmentation-selfie-16.0.0-beta4-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/1489f6edf74ab707735c0354abeccda7/transformed/jetified-camera-16.0.0-beta3-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/962c78b825706dd68933c38df1cc098c/transformed/jetified-play-services-mlkit-barcode-scanning-18.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/13af3c4e9fd59689d763f32b79dd2ff8/transformed/jetified-barcode-scanning-common-17.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/15797ca6c894cb1b83f42efe70eb9a06/transformed/jetified-object-detection-common-18.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/a3a3047d35932848df0633c902f7b1fb/transformed/jetified-vision-internal-vkp-18.2.2-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/9044f87689b2796b631ef72e2cdfbcc9/transformed/jetified-play-services-mlkit-face-detection-17.0.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/79e956b916dfd559df0e9aa1c2a5a24d/transformed/jetified-play-services-mlkit-text-recognition-common-17.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/68083c48e720e1e59e2ad85a9ef0bfcb/transformed/jetified-text-recognition-bundled-common-16.0.0-beta3-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/7ee36678e482bbcd20be46ac0379edb4/transformed/jetified-image-labeling-default-common-17.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/d924c1ba8bbb5b31888a220b7d7df0c8/transformed/jetified-image-labeling-custom-common-17.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/c029a99c5ec4e37537c2631de0dff9ad/transformed/jetified-image-labeling-common-18.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/8bb10bf2d88d9c7500aa6ecf1491ed54/transformed/jetified-mediapipe-internal-17.0.0-beta7-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/b3ebb0924ff7eadf47c634b27d213925/transformed/jetified-vision-common-17.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/847c296e0e9394e8f8291c416f93ddfa/transformed/jetified-common-18.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/96fcd3f628c4b54e8fb0750e5bcb1cdb/transformed/jetified-play-services-base-18.0.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/1eaf20a475429e7d44c82732f213c877/transformed/jetified-vision-interfaces-16.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/5be76b873d52bd02b9106e5735cf3086/transformed/jetified-play-services-tasks-18.0.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/f40c14b0e2e1af2fd6ec7d4438adf8d6/transformed/jetified-play-services-basement-18.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/d0dd21339ce8acf95079d53d9c14c648/transformed/constraintlayout-2.0.4-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/d670b4ed9e07204acae7503ac69b89c9/transformed/appcompat-1.2.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/a7bedac7d9da81758aa9719d8caa90ef/transformed/lifecycle-extensions-2.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/ae83d6d8708284f4615336e781593fb6/transformed/fragment-1.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/988ca8bdd4900e84f602c1d5cccd664d/transformed/jetified-appcompat-resources-1.2.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/81e8944d228f1b67a6b194bd9ec8ca08/transformed/drawerlayout-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/1e6e4b8bed71ee1d4b3cd906e571b8fb/transformed/viewpager-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/260578ec8f72b9345c9e5f994e7af75e/transformed/loader-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/1f0906bdef6120c6140d9367311f2c9a/transformed/jetified-activity-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/4f7a256cb95de13e431a252022c8cd34/transformed/vectordrawable-animated-1.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/c295a15d76d4555dcbf86edc9971e4fe/transformed/vectordrawable-1.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/a726e8089f03ea4ae3d7147a4ce8cdee/transformed/customview-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/ac3dcd7085d7bd77abffb82f79f9f4a8/transformed/core-1.6.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/34b5c953146cb8896e830af8ff8b9b75/transformed/versionedparcelable-1.1.1-api.jar;C:/Users/권희연/.gradle/caches/modules-2/files-2.1/androidx.collection/collection/1.1.0/1f27220b47669781457de0d600849a5de0e89909/collection-1.1.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/d26137a10bc30d8e47cad6cde86029e9/transformed/lifecycle-viewmodel-2.3.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/a638359d22b48f7b47808cd5fb13d7c1/transformed/jetified-camera-camera2-1.0.0-SNAPSHOT-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/87b1178d9a757d11430013e17dafde65/transformed/jetified-camera-view-1.0.0-SNAPSHOT-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/7a12b540b2564139347ffc3481dbdd09/transformed/jetified-transport-backend-cct-2.3.3-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/7f6746d93bf36de690280cddd947468d/transformed/jetified-transport-runtime-2.2.6-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/cd625266f69ef936ba946df0378db92b/transformed/jetified-transport-api-2.2.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/63bf895d9f845d05f7ef578ba95879a6/transformed/jetified-firebase-components-16.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/041724454c105047685aa5bf799c0683/transformed/jetified-firebase-encoders-json-17.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/0ec8cadb04e6635abc96164be1b68b0f/transformed/jetified-firebase-encoders-16.1.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/f1e98eca4a60c6807a1d6e4baaa2cebf/transformed/jetified-camera-lifecycle-1.0.0-SNAPSHOT-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/d7fb833351e381d30ab3415ec07d2059/transformed/jetified-camera-core-1.0.0-SNAPSHOT-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/0962f6df7e3a5ddff7114cd254265814/transformed/work-runtime-2.7.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/593ebaf0b89987fe17fdba0216567783/transformed/lifecycle-livedata-2.3.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/6394811f2099becd4939560c7931cab8/transformed/core-runtime-2.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/9990b18ee1b42b3584142aa5788aed63/transformed/cursoradapter-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/62592ee2e441eefefa7a62dc44a686b7/transformed/lifecycle-livedata-core-2.3.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/cee24b4c18619871348488af3f66f46c/transformed/jetified-lifecycle-process-2.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/e80d1b89ae053844831d0b1e9453b9d6/transformed/jetified-lifecycle-service-2.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/51d6581c37133259ceab8133b219c25e/transformed/lifecycle-runtime-2.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/9c0c9961ac63f4750a9cfc8a84936f28/transformed/jetified-savedstate-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/modules-2/files-2.1/androidx.lifecycle/lifecycle-common/2.3.1/fc466261d52f4433863642fb40d12441ae274a98/lifecycle-common-2.3.1.jar;C:/Users/권희연/.gradle/caches/transforms-3/3615767d4eabbf9fa88bd3a865954e81/transformed/exifinterface-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/modules-2/files-2.1/androidx.arch.core/core-common/2.1.0/b3152fc64428c9354344bd89848ecddc09b6f07e/core-common-2.1.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/7726387bafdd612f83ae8f4dbc79ec66/transformed/interpolator-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/modules-2/files-2.1/androidx.annotation/annotation/1.2.0/57136ff68ee784c6e19db34ed4a175338fadfde1/annotation-1.2.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/9e0c85cc776e1faa7a73c85e1f2232aa/transformed/jetified-annotation-experimental-1.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/511369e2086b95d8dd0abb917229aeec/transformed/jetified-javax.inject-1.jar;C:/Users/권희연/.gradle/caches/transforms-3/d1e03a429a578dbaef83c6d3dcdb999d/transformed/jetified-image-1.0.0-beta1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/044eacf657b8281f58856ef03ce8d849/transformed/jetified-firebase-annotations-16.0.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/2ea922c7be39dd1e498e02f2ce7cba88/transformed/jetified-okhttp-3.0.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/b1913613a75413cc4a7faab052c92dd1/transformed/jetified-okio-1.6.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/c229c31a8b96a061fcf355c241b150ab/transformed/jetified-startup-runtime-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/67b5a03a1c263e9c08848deccf3192d1/transformed/jetified-guava-29.0-android.jar;C:/Users/권희연/.gradle/caches/transforms-3/5aaa4987d78bc499a8fe9f1aeb1550b4/transformed/jetified-failureaccess-1.0.1.jar;C:/Users/권희연/.gradle/caches/transforms-3/adba0ab4e21f05b8a7a3c4c6060b72e9/transformed/jetified-jsr305-3.0.2.jar;C:/Users/권희연/.gradle/caches/transforms-3/ddbcfc008a50156a7915b8e2666eac67/transformed/jetified-checker-compat-qual-2.5.5.jar;C:/Users/권희연/.gradle/caches/transforms-3/a085d6de1b5cdea6c67524be32c8839e/transformed/jetified-error_prone_annotations-2.3.4.jar;C:/Users/권희연/.gradle/caches/transforms-3/f49a9da7169727b15c226526a1fcb0ce/transformed/jetified-j2objc-annotations-1.3.jar;C:/Users/권희연/.gradle/caches/transforms-3/53c25ea72fd6dd880d191ea161dfd4b1/transformed/jetified-gson-2.8.6.jar;C:/Users/권희연/.gradle/caches/modules-2/files-2.1/androidx.constraintlayout/constraintlayout-solver/2.0.4/1f001d7db280a89a6c26b26a66eb064bb6d5efeb/constraintlayout-solver-2.0.4.jar;C:/AndroidStudio/platforms/android-31/android.jar;C:/AndroidStudio/build-tools/30.0.2/core-lambda-stubs.jar" />
++          <option name="classpath" value="$MODULE_DIR$/../../../app/build/intermediates/compile_and_runtime_not_namespaced_r_class_jar/debug/R.jar;C:/Users/권희연/.gradle/caches/transforms-3/275c79856bbdec9a04a98f912b96dd4d/transformed/databinding-runtime-7.0.3-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/8090b0c9bb1e78a4412f28a54723e158/transformed/jetified-viewbinding-7.0.3-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/1877a10c2fac1bdbe1b38b609fe2a475/transformed/databinding-adapters-7.0.3-api.jar;C:/Users/권희연/.gradle/caches/modules-2/files-2.1/androidx.databinding/databinding-common/7.0.3/730ebf29182d79cb1085a58c4bf89cd0b17e8acf/databinding-common-7.0.3.jar;C:/Users/권희연/.gradle/caches/transforms-3/424de52a11e85ff836619f2f510bcfd8/transformed/jetified-databinding-ktx-7.0.3-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/f174a20b06e11ae6ab01090188d0c167/transformed/jetified-object-detection-17.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/cfdb86d77990c40c8ecd729423173793/transformed/lifecycle-extensions-2.2.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/d0dd21339ce8acf95079d53d9c14c648/transformed/constraintlayout-2.0.4-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/d670b4ed9e07204acae7503ac69b89c9/transformed/appcompat-1.2.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/c0e493163572e7f4868f6541539d32fd/transformed/jetified-barcode-scanning-17.0.2-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/078893b2a756117ece91e133a98b0470/transformed/jetified-object-detection-custom-17.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/6cff6d2d1020584412ae14b2cc3bc3f8/transformed/jetified-face-detection-16.1.5-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/97a2c7d82db161e5ea409024c69d7eac/transformed/jetified-play-services-mlkit-text-recognition-18.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/2d1969f26c51cd2ef2116e639de0cd18/transformed/jetified-text-recognition-chinese-16.0.0-beta3-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/dcf4c1685cb930f698d5fd15b8ca51a0/transformed/jetified-text-recognition-devanagari-16.0.0-beta3-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/560ac2b9b322f009e20cba95018ca673/transformed/jetified-text-recognition-japanese-16.0.0-beta3-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/f9e8c543232e888c5d6325109cfa265b/transformed/jetified-text-recognition-korean-16.0.0-beta3-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/c18aa4490536d351cc16e681b552d1dc/transformed/jetified-image-labeling-17.0.7-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/3fe5ad09bda737e9ae53f0fa02d37fa0/transformed/jetified-image-labeling-custom-17.0.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/921439b56a0ed1dbbef6b811577062bb/transformed/jetified-pose-detection-18.0.0-beta2-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/db4fbf8b6c20441dc6dde0c47fbc939b/transformed/jetified-pose-detection-accurate-18.0.0-beta2-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/66b3b2f5ef1a28c6741392c1322c711e/transformed/jetified-segmentation-selfie-16.0.0-beta4-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/1489f6edf74ab707735c0354abeccda7/transformed/jetified-camera-16.0.0-beta3-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/962c78b825706dd68933c38df1cc098c/transformed/jetified-play-services-mlkit-barcode-scanning-18.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/13af3c4e9fd59689d763f32b79dd2ff8/transformed/jetified-barcode-scanning-common-17.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/15797ca6c894cb1b83f42efe70eb9a06/transformed/jetified-object-detection-common-18.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/a3a3047d35932848df0633c902f7b1fb/transformed/jetified-vision-internal-vkp-18.2.2-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/9044f87689b2796b631ef72e2cdfbcc9/transformed/jetified-play-services-mlkit-face-detection-17.0.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/79e956b916dfd559df0e9aa1c2a5a24d/transformed/jetified-play-services-mlkit-text-recognition-common-17.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/68083c48e720e1e59e2ad85a9ef0bfcb/transformed/jetified-text-recognition-bundled-common-16.0.0-beta3-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/7ee36678e482bbcd20be46ac0379edb4/transformed/jetified-image-labeling-default-common-17.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/d924c1ba8bbb5b31888a220b7d7df0c8/transformed/jetified-image-labeling-custom-common-17.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/c029a99c5ec4e37537c2631de0dff9ad/transformed/jetified-image-labeling-common-18.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/bdd24597bd8d1641d9a04476f80e83a8/transformed/jetified-pose-detection-common-18.0.0-beta2-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/8bb10bf2d88d9c7500aa6ecf1491ed54/transformed/jetified-mediapipe-internal-17.0.0-beta7-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/b3ebb0924ff7eadf47c634b27d213925/transformed/jetified-vision-common-17.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/847c296e0e9394e8f8291c416f93ddfa/transformed/jetified-common-18.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/3506f8d43a5ad2aaef451f26e691fd5f/transformed/jetified-acceleration-16.0.0-beta1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/96fcd3f628c4b54e8fb0750e5bcb1cdb/transformed/jetified-play-services-base-18.0.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/1eaf20a475429e7d44c82732f213c877/transformed/jetified-vision-interfaces-16.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/5be76b873d52bd02b9106e5735cf3086/transformed/jetified-play-services-tasks-18.0.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/f40c14b0e2e1af2fd6ec7d4438adf8d6/transformed/jetified-play-services-basement-18.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/159df78e5d0bedcc13d3dbbbfd0583a9/transformed/fragment-1.2.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/260578ec8f72b9345c9e5f994e7af75e/transformed/loader-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/0edea7d7635735650d30aae41af8d604/transformed/jetified-activity-1.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/58a1fee5bb5e772d6474e2a1748fa4d7/transformed/jetified-lifecycle-viewmodel-savedstate-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/d26137a10bc30d8e47cad6cde86029e9/transformed/lifecycle-viewmodel-2.3.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/a638359d22b48f7b47808cd5fb13d7c1/transformed/jetified-camera-camera2-1.0.0-SNAPSHOT-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/87b1178d9a757d11430013e17dafde65/transformed/jetified-camera-view-1.0.0-SNAPSHOT-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/567e9fa5ac4e08f8f0718f11d8d216d0/transformed/jetified-lifecycle-runtime-ktx-2.2.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/988ca8bdd4900e84f602c1d5cccd664d/transformed/jetified-appcompat-resources-1.2.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/81e8944d228f1b67a6b194bd9ec8ca08/transformed/drawerlayout-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/1e6e4b8bed71ee1d4b3cd906e571b8fb/transformed/viewpager-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/4f7a256cb95de13e431a252022c8cd34/transformed/vectordrawable-animated-1.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/c295a15d76d4555dcbf86edc9971e4fe/transformed/vectordrawable-1.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/a726e8089f03ea4ae3d7147a4ce8cdee/transformed/customview-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/ac3dcd7085d7bd77abffb82f79f9f4a8/transformed/core-1.6.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/1ec3ed8a3dd38c9239c227c7581c6bad/transformed/jetified-lifecycle-process-2.2.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/ceb71a2ce345c316de81ff504c0ed23e/transformed/jetified-lifecycle-service-2.2.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/7d71c6fd7b6e593b08389eba4835f170/transformed/lifecycle-runtime-2.2.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/7a12b540b2564139347ffc3481dbdd09/transformed/jetified-transport-backend-cct-2.3.3-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/7f6746d93bf36de690280cddd947468d/transformed/jetified-transport-runtime-2.2.6-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/cd625266f69ef936ba946df0378db92b/transformed/jetified-transport-api-2.2.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/63bf895d9f845d05f7ef578ba95879a6/transformed/jetified-firebase-components-16.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/041724454c105047685aa5bf799c0683/transformed/jetified-firebase-encoders-json-17.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/0ec8cadb04e6635abc96164be1b68b0f/transformed/jetified-firebase-encoders-16.1.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/f1e98eca4a60c6807a1d6e4baaa2cebf/transformed/jetified-camera-lifecycle-1.0.0-SNAPSHOT-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/d7fb833351e381d30ab3415ec07d2059/transformed/jetified-camera-core-1.0.0-SNAPSHOT-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/1de796c11b5ada1f08dcdc1793bfe32a/transformed/jetified-work-multiprocess-2.7.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/2399bee93c4781e7b857928e394b57e3/transformed/work-runtime-ktx-2.7.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/0962f6df7e3a5ddff7114cd254265814/transformed/work-runtime-2.7.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/593ebaf0b89987fe17fdba0216567783/transformed/lifecycle-livedata-2.3.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/6394811f2099becd4939560c7931cab8/transformed/core-runtime-2.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/9990b18ee1b42b3584142aa5788aed63/transformed/cursoradapter-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/62592ee2e441eefefa7a62dc44a686b7/transformed/lifecycle-livedata-core-2.3.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/9c0c9961ac63f4750a9cfc8a84936f28/transformed/jetified-savedstate-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/modules-2/files-2.1/androidx.lifecycle/lifecycle-common/2.3.1/fc466261d52f4433863642fb40d12441ae274a98/lifecycle-common-2.3.1.jar;C:/Users/권희연/.gradle/caches/modules-2/files-2.1/androidx.arch.core/core-common/2.1.0/b3152fc64428c9354344bd89848ecddc09b6f07e/core-common-2.1.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/34b5c953146cb8896e830af8ff8b9b75/transformed/versionedparcelable-1.1.1-api.jar;C:/Users/권희연/.gradle/caches/modules-2/files-2.1/androidx.collection/collection/1.1.0/1f27220b47669781457de0d600849a5de0e89909/collection-1.1.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/3615767d4eabbf9fa88bd3a865954e81/transformed/exifinterface-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/7726387bafdd612f83ae8f4dbc79ec66/transformed/interpolator-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/modules-2/files-2.1/androidx.annotation/annotation/1.2.0/57136ff68ee784c6e19db34ed4a175338fadfde1/annotation-1.2.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/2267828675ab1261afa4ec72ee86528b/transformed/jetified-kotlinx-coroutines-android-1.5.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/0c36829101764e246282651378fe64b7/transformed/jetified-kotlinx-coroutines-core-jvm-1.5.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/73936d88bd7d1ed95b227e6fdafc358d/transformed/jetified-kotlin-stdlib-jdk8-1.5.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/fc9c35061f125cbb33a0346d63a643ea/transformed/jetified-kotlin-android-extensions-runtime-1.5.31.jar;C:/Users/권희연/.gradle/caches/transforms-3/d08fde999f445357f27a1b683052f66a/transformed/jetified-kotlin-stdlib-jdk7-1.5.31.jar;C:/Users/권희연/.gradle/caches/transforms-3/ee992cb84eafc4921aca12e6ee044544/transformed/jetified-kotlin-stdlib-1.5.31.jar;C:/Users/권희연/.gradle/caches/transforms-3/80f12aeb6f19fa6e5533fe1a28208808/transformed/jetified-annotations-13.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/afdcd2d66e7a2f17efe4836e65bc72c2/transformed/jetified-kotlin-stdlib-common-1.5.31.jar;C:/Users/권희연/.gradle/caches/transforms-3/9e0c85cc776e1faa7a73c85e1f2232aa/transformed/jetified-annotation-experimental-1.1.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/df467b1db4410583864abe09a3646247/transformed/multidex-2.0.1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/511369e2086b95d8dd0abb917229aeec/transformed/jetified-javax.inject-1.jar;C:/Users/권희연/.gradle/caches/transforms-3/d1e03a429a578dbaef83c6d3dcdb999d/transformed/jetified-image-1.0.0-beta1-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/044eacf657b8281f58856ef03ce8d849/transformed/jetified-firebase-annotations-16.0.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/2ea922c7be39dd1e498e02f2ce7cba88/transformed/jetified-okhttp-3.0.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/b1913613a75413cc4a7faab052c92dd1/transformed/jetified-okio-1.6.0.jar;C:/Users/권희연/.gradle/caches/transforms-3/c229c31a8b96a061fcf355c241b150ab/transformed/jetified-startup-runtime-1.0.0-api.jar;C:/Users/권희연/.gradle/caches/transforms-3/67b5a03a1c263e9c08848deccf3192d1/transformed/jetified-guava-29.0-android.jar;C:/Users/권희연/.gradle/caches/transforms-3/5aaa4987d78bc499a8fe9f1aeb1550b4/transformed/jetified-failureaccess-1.0.1.jar;C:/Users/권희연/.gradle/caches/transforms-3/adba0ab4e21f05b8a7a3c4c6060b72e9/transformed/jetified-jsr305-3.0.2.jar;C:/Users/권희연/.gradle/caches/transforms-3/ddbcfc008a50156a7915b8e2666eac67/transformed/jetified-checker-compat-qual-2.5.5.jar;C:/Users/권희연/.gradle/caches/transforms-3/a085d6de1b5cdea6c67524be32c8839e/transformed/jetified-error_prone_annotations-2.3.4.jar;C:/Users/권희연/.gradle/caches/transforms-3/f49a9da7169727b15c226526a1fcb0ce/transformed/jetified-j2objc-annotations-1.3.jar;C:/Users/권희연/.gradle/caches/transforms-3/53c25ea72fd6dd880d191ea161dfd4b1/transformed/jetified-gson-2.8.6.jar;C:/Users/권희연/.gradle/caches/modules-2/files-2.1/androidx.constraintlayout/constraintlayout-solver/2.0.4/1f001d7db280a89a6c26b26a66eb064bb6d5efeb/constraintlayout-solver-2.0.4.jar;C:/AndroidStudio/platforms/android-31/android.jar;C:/AndroidStudio/build-tools/30.0.2/core-lambda-stubs.jar" />
+           <option name="noStdlib" value="true" />
+           <option name="noReflect" value="true" />
+           <option name="moduleName" value="vision-quickstart_debug" />
+@@ -91,19 +91,20 @@
+     <orderEntry type="library" scope="TEST" name="Gradle: androidx.core:core:1.3.1@aar" level="project" />
+     <orderEntry type="library" scope="TEST" name="Gradle: androidx.versionedparcelable:versionedparcelable:1.1.0@aar" level="project" />
+     <orderEntry type="library" scope="TEST" name="Gradle: androidx.annotation:annotation-experimental:1.0.0@aar" level="project" />
+-    <orderEntry type="library" name="Gradle: org.jetbrains.kotlin:kotlin-android-extensions-runtime:1.5.31" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.databinding:databinding-common:7.0.3" level="project" />
++    <orderEntry type="library" name="Gradle: com.google.firebase:firebase-encoders:16.1.0" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.lifecycle:lifecycle-common:2.3.1" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.arch.core:core-common:2.1.0" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.collection:collection:1.1.0" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.annotation:annotation:1.2.0" level="project" />
+     <orderEntry type="library" name="Gradle: org.jetbrains.kotlinx:kotlinx-coroutines-android:1.5.0" level="project" />
+     <orderEntry type="library" name="Gradle: org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.5.0" level="project" />
+     <orderEntry type="library" name="Gradle: org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.5.0" level="project" />
++    <orderEntry type="library" name="Gradle: org.jetbrains.kotlin:kotlin-android-extensions-runtime:1.5.31" level="project" />
+     <orderEntry type="library" name="Gradle: org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.5.31" level="project" />
+     <orderEntry type="library" name="Gradle: org.jetbrains.kotlin:kotlin-stdlib:1.5.31" level="project" />
+     <orderEntry type="library" name="Gradle: org.jetbrains:annotations:13.0" level="project" />
+     <orderEntry type="library" name="Gradle: org.jetbrains.kotlin:kotlin-stdlib-common:1.5.31" level="project" />
+-    <orderEntry type="library" name="Gradle: androidx.collection:collection:1.1.0" level="project" />
+-    <orderEntry type="library" name="Gradle: com.google.firebase:firebase-encoders:16.1.0" level="project" />
+-    <orderEntry type="library" name="Gradle: androidx.lifecycle:lifecycle-common:2.3.1" level="project" />
+-    <orderEntry type="library" name="Gradle: androidx.arch.core:core-common:2.1.0" level="project" />
+-    <orderEntry type="library" name="Gradle: androidx.annotation:annotation:1.2.0" level="project" />
+     <orderEntry type="library" name="Gradle: javax.inject:javax.inject:1" level="project" />
+     <orderEntry type="library" name="Gradle: com.google.firebase:firebase-annotations:16.0.0" level="project" />
+     <orderEntry type="library" name="Gradle: com.squareup.okhttp3:okhttp:3.0.0" level="project" />
+@@ -116,15 +117,15 @@
+     <orderEntry type="library" name="Gradle: com.google.j2objc:j2objc-annotations:1.3" level="project" />
+     <orderEntry type="library" name="Gradle: com.google.code.gson:gson:2.8.6" level="project" />
+     <orderEntry type="library" name="Gradle: androidx.constraintlayout:constraintlayout-solver:2.0.4" level="project" />
+-    <orderEntry type="library" name="Gradle: com.google.mlkit:pose-detection:18.0.0-beta2@aar" level="project" />
+-    <orderEntry type="library" name="Gradle: com.google.mlkit:pose-detection-accurate:18.0.0-beta2@aar" level="project" />
+-    <orderEntry type="library" name="Gradle: com.google.mlkit:pose-detection-common:18.0.0-beta2@aar" level="project" />
+-    <orderEntry type="library" name="Gradle: com.google.mlkit:acceleration:16.0.0-beta1@aar" level="project" />
+-    <orderEntry type="library" name="Gradle: androidx.work:work-multiprocess:2.7.0@aar" level="project" />
+-    <orderEntry type="library" name="Gradle: androidx.work:work-runtime-ktx:2.7.0@aar" level="project" />
+-    <orderEntry type="library" name="Gradle: androidx.multidex:multidex:2.0.1@aar" level="project" />
+-    <orderEntry type="library" name="Gradle: com.google.mlkit:barcode-scanning:17.0.2@aar" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.databinding:databinding-runtime:7.0.3@aar" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.databinding:viewbinding:7.0.3@aar" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.databinding:databinding-adapters:7.0.3@aar" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.databinding:databinding-ktx:7.0.3@aar" level="project" />
+     <orderEntry type="library" name="Gradle: com.google.mlkit:object-detection:17.0.0@aar" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.lifecycle:lifecycle-extensions:2.2.0@aar" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.constraintlayout:constraintlayout:2.0.4@aar" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.appcompat:appcompat:1.2.0@aar" level="project" />
++    <orderEntry type="library" name="Gradle: com.google.mlkit:barcode-scanning:17.0.2@aar" level="project" />
+     <orderEntry type="library" name="Gradle: com.google.mlkit:object-detection-custom:17.0.0@aar" level="project" />
+     <orderEntry type="library" name="Gradle: com.google.mlkit:face-detection:16.1.5@aar" level="project" />
+     <orderEntry type="library" name="Gradle: com.google.android.gms:play-services-mlkit-text-recognition:18.0.0@aar" level="project" />
+@@ -134,6 +135,8 @@
+     <orderEntry type="library" name="Gradle: com.google.mlkit:text-recognition-korean:16.0.0-beta3@aar" level="project" />
+     <orderEntry type="library" name="Gradle: com.google.mlkit:image-labeling:17.0.7@aar" level="project" />
+     <orderEntry type="library" name="Gradle: com.google.mlkit:image-labeling-custom:17.0.1@aar" level="project" />
++    <orderEntry type="library" name="Gradle: com.google.mlkit:pose-detection:18.0.0-beta2@aar" level="project" />
++    <orderEntry type="library" name="Gradle: com.google.mlkit:pose-detection-accurate:18.0.0-beta2@aar" level="project" />
+     <orderEntry type="library" name="Gradle: com.google.mlkit:segmentation-selfie:16.0.0-beta4@aar" level="project" />
+     <orderEntry type="library" name="Gradle: com.google.mlkit:camera:16.0.0-beta3@aar" level="project" />
+     <orderEntry type="library" name="Gradle: com.google.android.gms:play-services-mlkit-barcode-scanning:18.0.0@aar" level="project" />
+@@ -146,30 +149,33 @@
+     <orderEntry type="library" name="Gradle: com.google.mlkit:image-labeling-default-common:17.0.0@aar" level="project" />
+     <orderEntry type="library" name="Gradle: com.google.mlkit:image-labeling-custom-common:17.0.0@aar" level="project" />
+     <orderEntry type="library" name="Gradle: com.google.mlkit:image-labeling-common:18.0.0@aar" level="project" />
++    <orderEntry type="library" name="Gradle: com.google.mlkit:pose-detection-common:18.0.0-beta2@aar" level="project" />
+     <orderEntry type="library" name="Gradle: com.google.mlkit:mediapipe-internal:17.0.0-beta7@aar" level="project" />
+     <orderEntry type="library" name="Gradle: com.google.mlkit:vision-common:17.1.0@aar" level="project" />
+     <orderEntry type="library" name="Gradle: com.google.mlkit:common:18.1.0@aar" level="project" />
++    <orderEntry type="library" name="Gradle: com.google.mlkit:acceleration:16.0.0-beta1@aar" level="project" />
+     <orderEntry type="library" name="Gradle: com.google.android.gms:play-services-base:18.0.1@aar" level="project" />
+     <orderEntry type="library" name="Gradle: com.google.mlkit:vision-interfaces:16.0.0@aar" level="project" />
+     <orderEntry type="library" name="Gradle: com.google.android.gms:play-services-tasks:18.0.1@aar" level="project" />
+     <orderEntry type="library" name="Gradle: com.google.android.gms:play-services-basement:18.0.0@aar" level="project" />
+-    <orderEntry type="library" name="Gradle: androidx.constraintlayout:constraintlayout:2.0.4@aar" level="project" />
+-    <orderEntry type="library" name="Gradle: androidx.appcompat:appcompat:1.2.0@aar" level="project" />
+-    <orderEntry type="library" name="Gradle: androidx.lifecycle:lifecycle-extensions:2.1.0@aar" level="project" />
+-    <orderEntry type="library" name="Gradle: androidx.fragment:fragment:1.1.0@aar" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.fragment:fragment:1.2.0@aar" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.loader:loader:1.0.0@aar" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.activity:activity:1.1.0@aar" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.lifecycle:lifecycle-viewmodel-savedstate:1.0.0@aar" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.lifecycle:lifecycle-viewmodel:2.3.1@aar" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.camera:camera-camera2:1.0.0-SNAPSHOT@aar" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.camera:camera-view:1.0.0-SNAPSHOT@aar" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.lifecycle:lifecycle-runtime-ktx:2.2.0@aar" level="project" />
+     <orderEntry type="library" name="Gradle: androidx.appcompat:appcompat-resources:1.2.0@aar" level="project" />
+     <orderEntry type="library" name="Gradle: androidx.drawerlayout:drawerlayout:1.0.0@aar" level="project" />
+     <orderEntry type="library" name="Gradle: androidx.viewpager:viewpager:1.0.0@aar" level="project" />
+-    <orderEntry type="library" name="Gradle: androidx.loader:loader:1.0.0@aar" level="project" />
+-    <orderEntry type="library" name="Gradle: androidx.activity:activity:1.0.0@aar" level="project" />
+     <orderEntry type="library" name="Gradle: androidx.vectordrawable:vectordrawable-animated:1.1.0@aar" level="project" />
+     <orderEntry type="library" name="Gradle: androidx.vectordrawable:vectordrawable:1.1.0@aar" level="project" />
+     <orderEntry type="library" name="Gradle: androidx.customview:customview:1.0.0@aar" level="project" />
+     <orderEntry type="library" name="Gradle: androidx.core:core:1.6.0@aar" level="project" />
+-    <orderEntry type="library" name="Gradle: androidx.versionedparcelable:versionedparcelable:1.1.1@aar" level="project" />
+-    <orderEntry type="library" name="Gradle: androidx.lifecycle:lifecycle-viewmodel:2.3.1@aar" level="project" />
+-    <orderEntry type="library" name="Gradle: androidx.camera:camera-camera2:1.0.0-SNAPSHOT@aar" level="project" />
+-    <orderEntry type="library" name="Gradle: androidx.camera:camera-view:1.0.0-SNAPSHOT@aar" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.lifecycle:lifecycle-process:2.2.0@aar" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.lifecycle:lifecycle-service:2.2.0@aar" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.lifecycle:lifecycle-runtime:2.2.0@aar" level="project" />
+     <orderEntry type="library" name="Gradle: com.google.android.datatransport:transport-backend-cct:2.3.3@aar" level="project" />
+     <orderEntry type="library" name="Gradle: com.google.android.datatransport:transport-runtime:2.2.6@aar" level="project" />
+     <orderEntry type="library" name="Gradle: com.google.android.datatransport:transport-api:2.2.1@aar" level="project" />
+@@ -177,18 +183,19 @@
+     <orderEntry type="library" name="Gradle: com.google.firebase:firebase-encoders-json:17.1.0@aar" level="project" />
+     <orderEntry type="library" name="Gradle: androidx.camera:camera-lifecycle:1.0.0-SNAPSHOT@aar" level="project" />
+     <orderEntry type="library" name="Gradle: androidx.camera:camera-core:1.0.0-SNAPSHOT@aar" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.work:work-multiprocess:2.7.0@aar" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.work:work-runtime-ktx:2.7.0@aar" level="project" />
+     <orderEntry type="library" name="Gradle: androidx.work:work-runtime:2.7.0@aar" level="project" />
+     <orderEntry type="library" name="Gradle: androidx.lifecycle:lifecycle-livedata:2.3.1@aar" level="project" />
+     <orderEntry type="library" name="Gradle: androidx.arch.core:core-runtime:2.1.0@aar" level="project" />
+     <orderEntry type="library" name="Gradle: androidx.cursoradapter:cursoradapter:1.0.0@aar" level="project" />
+     <orderEntry type="library" name="Gradle: androidx.lifecycle:lifecycle-livedata-core:2.3.1@aar" level="project" />
+-    <orderEntry type="library" name="Gradle: androidx.lifecycle:lifecycle-process:2.1.0@aar" level="project" />
+-    <orderEntry type="library" name="Gradle: androidx.lifecycle:lifecycle-service:2.1.0@aar" level="project" />
+-    <orderEntry type="library" name="Gradle: androidx.lifecycle:lifecycle-runtime:2.1.0@aar" level="project" />
+     <orderEntry type="library" name="Gradle: androidx.savedstate:savedstate:1.0.0@aar" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.versionedparcelable:versionedparcelable:1.1.1@aar" level="project" />
+     <orderEntry type="library" name="Gradle: androidx.exifinterface:exifinterface:1.0.0@aar" level="project" />
+     <orderEntry type="library" name="Gradle: androidx.interpolator:interpolator:1.0.0@aar" level="project" />
+     <orderEntry type="library" name="Gradle: androidx.annotation:annotation-experimental:1.1.0@aar" level="project" />
++    <orderEntry type="library" name="Gradle: androidx.multidex:multidex:2.0.1@aar" level="project" />
+     <orderEntry type="library" name="Gradle: com.google.android.odml:image:1.0.0-beta1@aar" level="project" />
+     <orderEntry type="library" name="Gradle: androidx.startup:startup-runtime:1.0.0@aar" level="project" />
+   </component>
+Index: .idea/libraries/Gradle__androidx_activity_activity_1_1_0_aar.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/libraries/Gradle__androidx_activity_activity_1_1_0_aar.xml b/.idea/libraries/Gradle__androidx_activity_activity_1_1_0_aar.xml
+new file mode 100644
+--- /dev/null	(date 1653369391929)
++++ b/.idea/libraries/Gradle__androidx_activity_activity_1_1_0_aar.xml	(date 1653369391929)
+@@ -0,0 +1,13 @@
++<component name="libraryTable">
++  <library name="Gradle: androidx.activity:activity:1.1.0@aar">
++    <CLASSES>
++      <root url="jar://$USER_HOME$/.gradle/caches/transforms-3/2e638f9c01ababdd2eb510e27b40ca05/transformed/jetified-activity-1.1.0/jars/classes.jar!/" />
++      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/2e638f9c01ababdd2eb510e27b40ca05/transformed/jetified-activity-1.1.0/res" />
++      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/2e638f9c01ababdd2eb510e27b40ca05/transformed/jetified-activity-1.1.0/AndroidManifest.xml" />
++    </CLASSES>
++    <JAVADOC />
++    <SOURCES>
++      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/androidx.activity/activity/1.1.0/4ee68d89e86e4d40bd44c0e2efe7e63716320932/activity-1.1.0-sources.jar!/" />
++    </SOURCES>
++  </library>
++</component>
+\ No newline at end of file
+Index: app/src/main/java/com/google/mlkit/vision/demo/kotlin/PermissionUtil.kt
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/app/src/main/java/com/google/mlkit/vision/demo/kotlin/PermissionUtil.kt b/app/src/main/java/com/google/mlkit/vision/demo/kotlin/PermissionUtil.kt
+new file mode 100644
+--- /dev/null	(date 1653476442940)
++++ b/app/src/main/java/com/google/mlkit/vision/demo/kotlin/PermissionUtil.kt	(date 1653476442940)
+@@ -0,0 +1,29 @@
++package com.google.mlkit.vision.demo.kotlin
++
++import android.app.Activity
++import android.content.Context
++import android.content.pm.PackageManager
++import androidx.core.app.ActivityCompat
++import androidx.core.content.ContextCompat
++
++public object  PermissionUtil {
++
++    public fun checkPermission(context: Context, permissionList: List<String>): Boolean {
++        for (i: Int in permissionList.indices) {
++            if (ContextCompat.checkSelfPermission(
++                    context,
++                    permissionList[i]
++                ) == PackageManager.PERMISSION_DENIED
++            ) {
++                return false
++            }
++        }
++
++        return true
++
++    }
++
++    public fun requestPermission(activity: Activity, permissionList: List<String>){
++        ActivityCompat.requestPermissions(activity, permissionList.toTypedArray(), 10)
++    }
++}
+\ No newline at end of file
+Index: .idea/libraries/Gradle__androidx_lifecycle_lifecycle_runtime_2_2_0_aar.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_runtime_2_2_0_aar.xml b/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_runtime_2_2_0_aar.xml
+new file mode 100644
+--- /dev/null	(date 1653369392163)
++++ b/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_runtime_2_2_0_aar.xml	(date 1653369392163)
+@@ -0,0 +1,13 @@
++<component name="libraryTable">
++  <library name="Gradle: androidx.lifecycle:lifecycle-runtime:2.2.0@aar">
++    <CLASSES>
++      <root url="jar://$USER_HOME$/.gradle/caches/transforms-3/92d4da97c3d27cc36e8a508d1c031a9d/transformed/lifecycle-runtime-2.2.0/jars/classes.jar!/" />
++      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/92d4da97c3d27cc36e8a508d1c031a9d/transformed/lifecycle-runtime-2.2.0/res" />
++      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/92d4da97c3d27cc36e8a508d1c031a9d/transformed/lifecycle-runtime-2.2.0/AndroidManifest.xml" />
++    </CLASSES>
++    <JAVADOC />
++    <SOURCES>
++      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/androidx.lifecycle/lifecycle-runtime/2.2.0/bac4e407cc35ca0fcd4c3c18d699fa632475b019/lifecycle-runtime-2.2.0-sources.jar!/" />
++    </SOURCES>
++  </library>
++</component>
+\ No newline at end of file
+Index: .idea/libraries/Gradle__androidx_lifecycle_lifecycle_process_2_2_0_aar.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_process_2_2_0_aar.xml b/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_process_2_2_0_aar.xml
+new file mode 100644
+--- /dev/null	(date 1653369392144)
++++ b/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_process_2_2_0_aar.xml	(date 1653369392144)
+@@ -0,0 +1,13 @@
++<component name="libraryTable">
++  <library name="Gradle: androidx.lifecycle:lifecycle-process:2.2.0@aar">
++    <CLASSES>
++      <root url="jar://$USER_HOME$/.gradle/caches/transforms-3/4bb4ed6e2d61b5230427d3e789e7ddc6/transformed/jetified-lifecycle-process-2.2.0/jars/classes.jar!/" />
++      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/4bb4ed6e2d61b5230427d3e789e7ddc6/transformed/jetified-lifecycle-process-2.2.0/res" />
++      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/4bb4ed6e2d61b5230427d3e789e7ddc6/transformed/jetified-lifecycle-process-2.2.0/AndroidManifest.xml" />
++    </CLASSES>
++    <JAVADOC />
++    <SOURCES>
++      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/androidx.lifecycle/lifecycle-process/2.2.0/87ad54b3a3ab3e83595fd66749e92beaf8123dd9/lifecycle-process-2.2.0-sources.jar!/" />
++    </SOURCES>
++  </library>
++</component>
+\ No newline at end of file
+Index: .idea/libraries/Gradle__androidx_lifecycle_lifecycle_service_2_2_0_aar.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_service_2_2_0_aar.xml b/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_service_2_2_0_aar.xml
+new file mode 100644
+--- /dev/null	(date 1653369392205)
++++ b/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_service_2_2_0_aar.xml	(date 1653369392205)
+@@ -0,0 +1,13 @@
++<component name="libraryTable">
++  <library name="Gradle: androidx.lifecycle:lifecycle-service:2.2.0@aar">
++    <CLASSES>
++      <root url="jar://$USER_HOME$/.gradle/caches/transforms-3/111fda45c89a1baad80098952c2fe5f8/transformed/jetified-lifecycle-service-2.2.0/jars/classes.jar!/" />
++      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/111fda45c89a1baad80098952c2fe5f8/transformed/jetified-lifecycle-service-2.2.0/res" />
++      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/111fda45c89a1baad80098952c2fe5f8/transformed/jetified-lifecycle-service-2.2.0/AndroidManifest.xml" />
++    </CLASSES>
++    <JAVADOC />
++    <SOURCES>
++      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/androidx.lifecycle/lifecycle-service/2.2.0/e150534c1cf4462034fe447f30f8c07bcd7d8f22/lifecycle-service-2.2.0-sources.jar!/" />
++    </SOURCES>
++  </library>
++</component>
+\ No newline at end of file
+Index: .idea/libraries/Gradle__androidx_lifecycle_lifecycle_runtime_ktx_2_2_0_aar.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_runtime_ktx_2_2_0_aar.xml b/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_runtime_ktx_2_2_0_aar.xml
+new file mode 100644
+--- /dev/null	(date 1653369392185)
++++ b/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_runtime_ktx_2_2_0_aar.xml	(date 1653369392185)
+@@ -0,0 +1,13 @@
++<component name="libraryTable">
++  <library name="Gradle: androidx.lifecycle:lifecycle-runtime-ktx:2.2.0@aar">
++    <CLASSES>
++      <root url="jar://$USER_HOME$/.gradle/caches/transforms-3/08740a8015b07d2eebf8aa3a700965ba/transformed/jetified-lifecycle-runtime-ktx-2.2.0/jars/classes.jar!/" />
++      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/08740a8015b07d2eebf8aa3a700965ba/transformed/jetified-lifecycle-runtime-ktx-2.2.0/res" />
++      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/08740a8015b07d2eebf8aa3a700965ba/transformed/jetified-lifecycle-runtime-ktx-2.2.0/AndroidManifest.xml" />
++    </CLASSES>
++    <JAVADOC />
++    <SOURCES>
++      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/androidx.lifecycle/lifecycle-runtime-ktx/2.2.0/d830dc45563157582e0075c25cd10d6cf8d21755/lifecycle-runtime-ktx-2.2.0-sources.jar!/" />
++    </SOURCES>
++  </library>
++</component>
+\ No newline at end of file
+Index: .idea/libraries/Gradle__androidx_databinding_viewbinding_7_0_3_aar.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/libraries/Gradle__androidx_databinding_viewbinding_7_0_3_aar.xml b/.idea/libraries/Gradle__androidx_databinding_viewbinding_7_0_3_aar.xml
+new file mode 100644
+--- /dev/null	(date 1653369392080)
++++ b/.idea/libraries/Gradle__androidx_databinding_viewbinding_7_0_3_aar.xml	(date 1653369392080)
+@@ -0,0 +1,13 @@
++<component name="libraryTable">
++  <library name="Gradle: androidx.databinding:viewbinding:7.0.3@aar">
++    <CLASSES>
++      <root url="jar://$USER_HOME$/.gradle/caches/transforms-3/8407d9905a1440a4036a87c618a223f3/transformed/jetified-viewbinding-7.0.3/jars/classes.jar!/" />
++      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/8407d9905a1440a4036a87c618a223f3/transformed/jetified-viewbinding-7.0.3/res" />
++      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/8407d9905a1440a4036a87c618a223f3/transformed/jetified-viewbinding-7.0.3/AndroidManifest.xml" />
++    </CLASSES>
++    <JAVADOC />
++    <SOURCES>
++      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/androidx.databinding/viewbinding/7.0.3/698be232ffae97b6f639d3c4114b8a8f4b527e0/viewbinding-7.0.3-sources.jar!/" />
++    </SOURCES>
++  </library>
++</component>
+\ No newline at end of file
+Index: .idea/misc.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n<project version=\"4\">\r\n  <component name=\"ProjectRootManager\" version=\"2\" languageLevel=\"JDK_11\" default=\"true\" project-jdk-name=\"Android Studio default JDK\" project-jdk-type=\"JavaSDK\">\r\n    <output url=\"file://$PROJECT_DIR$/build/classes\" />\r\n  </component>\r\n  <component name=\"ProjectType\">\r\n    <option name=\"id\" value=\"Android\" />\r\n  </component>\r\n</project>
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/misc.xml b/.idea/misc.xml
+--- a/.idea/misc.xml	(revision c48a821b4146655badfaf0d221109e9168627e02)
++++ b/.idea/misc.xml	(date 1653476973763)
+@@ -1,5 +1,17 @@
+ <?xml version="1.0" encoding="UTF-8"?>
+ <project version="4">
++  <component name="DesignSurface">
++    <option name="filePathToZoomLevelMap">
++      <map>
++        <entry key="..\:/AndroidStudio/AndroidStudioProjects/vision-quickstart/app/src/main/res/drawable/ic_shutter.xml" value="0.1" />
++        <entry key="..\:/AndroidStudio/AndroidStudioProjects/vision-quickstart/app/src/main/res/layout-land/activity_vision_live_preview.xml" value="0.21119929453262787" />
++        <entry key="..\:/AndroidStudio/AndroidStudioProjects/vision-quickstart/app/src/main/res/layout/activity_chooser.xml" value="0.24947916666666667" />
++        <entry key="..\:/AndroidStudio/AndroidStudioProjects/vision-quickstart/app/src/main/res/layout/activity_settings.xml" value="0.24947916666666667" />
++        <entry key="..\:/AndroidStudio/AndroidStudioProjects/vision-quickstart/app/src/main/res/layout/activity_vision_live_preview.xml" value="0.24947916666666667" />
++        <entry key="..\:/AndroidStudio/AndroidStudioProjects/vision-quickstart/app/src/main/res/layout/settings_style.xml" value="0.24947916666666667" />
++      </map>
++    </option>
++  </component>
+   <component name="ProjectRootManager" version="2" languageLevel="JDK_11" default="true" project-jdk-name="Android Studio default JDK" project-jdk-type="JavaSDK">
+     <output url="file://$PROJECT_DIR$/build/classes" />
+   </component>
+Index: .idea/libraries/Gradle__androidx_databinding_databinding_runtime_7_0_3_aar.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/libraries/Gradle__androidx_databinding_databinding_runtime_7_0_3_aar.xml b/.idea/libraries/Gradle__androidx_databinding_databinding_runtime_7_0_3_aar.xml
+new file mode 100644
+--- /dev/null	(date 1653369392059)
++++ b/.idea/libraries/Gradle__androidx_databinding_databinding_runtime_7_0_3_aar.xml	(date 1653369392059)
+@@ -0,0 +1,13 @@
++<component name="libraryTable">
++  <library name="Gradle: androidx.databinding:databinding-runtime:7.0.3@aar">
++    <CLASSES>
++      <root url="jar://$USER_HOME$/.gradle/caches/transforms-3/fbc27dda51f483234ab4a421e0bb2fc3/transformed/databinding-runtime-7.0.3/jars/classes.jar!/" />
++      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/fbc27dda51f483234ab4a421e0bb2fc3/transformed/databinding-runtime-7.0.3/res" />
++      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/fbc27dda51f483234ab4a421e0bb2fc3/transformed/databinding-runtime-7.0.3/AndroidManifest.xml" />
++    </CLASSES>
++    <JAVADOC />
++    <SOURCES>
++      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/androidx.databinding/databinding-runtime/7.0.3/710036e0160fe559405f2461f5b0022419ecb6b3/databinding-runtime-7.0.3-sources.jar!/" />
++    </SOURCES>
++  </library>
++</component>
+\ No newline at end of file
+Index: .idea/libraries/Gradle__androidx_lifecycle_lifecycle_extensions_2_2_0_aar.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_extensions_2_2_0_aar.xml b/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_extensions_2_2_0_aar.xml
+new file mode 100644
+--- /dev/null	(date 1653369392124)
++++ b/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_extensions_2_2_0_aar.xml	(date 1653369392124)
+@@ -0,0 +1,13 @@
++<component name="libraryTable">
++  <library name="Gradle: androidx.lifecycle:lifecycle-extensions:2.2.0@aar">
++    <CLASSES>
++      <root url="jar://$USER_HOME$/.gradle/caches/transforms-3/a9da07eed38783ec021b3305bb06c6c2/transformed/lifecycle-extensions-2.2.0/jars/classes.jar!/" />
++      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/a9da07eed38783ec021b3305bb06c6c2/transformed/lifecycle-extensions-2.2.0/res" />
++      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/a9da07eed38783ec021b3305bb06c6c2/transformed/lifecycle-extensions-2.2.0/AndroidManifest.xml" />
++    </CLASSES>
++    <JAVADOC />
++    <SOURCES>
++      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/androidx.lifecycle/lifecycle-extensions/2.2.0/32e7a190b796f6853c89f5d6b92b64a6fe8318d3/lifecycle-extensions-2.2.0-sources.jar!/" />
++    </SOURCES>
++  </library>
++</component>
+\ No newline at end of file
+Index: .idea/libraries/Gradle__androidx_fragment_fragment_1_1_0_aar.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/libraries/Gradle__androidx_fragment_fragment_1_1_0_aar.xml b/.idea/libraries/Gradle__androidx_fragment_fragment_1_2_0_aar.xml
+rename from .idea/libraries/Gradle__androidx_fragment_fragment_1_1_0_aar.xml
+rename to .idea/libraries/Gradle__androidx_fragment_fragment_1_2_0_aar.xml
+--- a/.idea/libraries/Gradle__androidx_fragment_fragment_1_1_0_aar.xml	(revision c48a821b4146655badfaf0d221109e9168627e02)
++++ b/.idea/libraries/Gradle__androidx_fragment_fragment_1_2_0_aar.xml	(date 1653369392103)
+@@ -1,16 +1,16 @@
+ <component name="libraryTable">
+-  <library name="Gradle: androidx.fragment:fragment:1.1.0@aar">
++  <library name="Gradle: androidx.fragment:fragment:1.2.0@aar">
+     <ANNOTATIONS>
+-      <root url="jar://$USER_HOME$/.gradle/caches/transforms-3/0f5a593cc360ee1d488152665a2cf1dd/transformed/fragment-1.1.0/annotations.zip!/" />
++      <root url="jar://$USER_HOME$/.gradle/caches/transforms-3/050ecacbf35e8cb05703b3e76a41b056/transformed/fragment-1.2.0/annotations.zip!/" />
+     </ANNOTATIONS>
+     <CLASSES>
+-      <root url="jar://$USER_HOME$/.gradle/caches/transforms-3/0f5a593cc360ee1d488152665a2cf1dd/transformed/fragment-1.1.0/jars/classes.jar!/" />
+-      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/0f5a593cc360ee1d488152665a2cf1dd/transformed/fragment-1.1.0/res" />
+-      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/0f5a593cc360ee1d488152665a2cf1dd/transformed/fragment-1.1.0/AndroidManifest.xml" />
++      <root url="jar://$USER_HOME$/.gradle/caches/transforms-3/050ecacbf35e8cb05703b3e76a41b056/transformed/fragment-1.2.0/jars/classes.jar!/" />
++      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/050ecacbf35e8cb05703b3e76a41b056/transformed/fragment-1.2.0/res" />
++      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/050ecacbf35e8cb05703b3e76a41b056/transformed/fragment-1.2.0/AndroidManifest.xml" />
+     </CLASSES>
+     <JAVADOC />
+     <SOURCES>
+-      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/androidx.fragment/fragment/1.1.0/b9ebb04df2cb0cad4419af3c658690bc82aa5706/fragment-1.1.0-sources.jar!/" />
++      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/androidx.fragment/fragment/1.2.0/b34176b43868c9ea90fea057e20153896a333fb6/fragment-1.2.0-sources.jar!/" />
+     </SOURCES>
+   </library>
+ </component>
+\ No newline at end of file
+Index: .idea/libraries/Gradle__androidx_lifecycle_lifecycle_viewmodel_savedstate_1_0_0_aar.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_viewmodel_savedstate_1_0_0_aar.xml b/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_viewmodel_savedstate_1_0_0_aar.xml
+new file mode 100644
+--- /dev/null	(date 1653369392225)
++++ b/.idea/libraries/Gradle__androidx_lifecycle_lifecycle_viewmodel_savedstate_1_0_0_aar.xml	(date 1653369392225)
+@@ -0,0 +1,13 @@
++<component name="libraryTable">
++  <library name="Gradle: androidx.lifecycle:lifecycle-viewmodel-savedstate:1.0.0@aar">
++    <CLASSES>
++      <root url="jar://$USER_HOME$/.gradle/caches/transforms-3/50b044f5c0f7c206173cc0ee590cf80b/transformed/jetified-lifecycle-viewmodel-savedstate-1.0.0/jars/classes.jar!/" />
++      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/50b044f5c0f7c206173cc0ee590cf80b/transformed/jetified-lifecycle-viewmodel-savedstate-1.0.0/res" />
++      <root url="file://$USER_HOME$/.gradle/caches/transforms-3/50b044f5c0f7c206173cc0ee590cf80b/transformed/jetified-lifecycle-viewmodel-savedstate-1.0.0/AndroidManifest.xml" />
++    </CLASSES>
++    <JAVADOC />
++    <SOURCES>
++      <root url="jar://$USER_HOME$/.gradle/caches/modules-2/files-2.1/androidx.lifecycle/lifecycle-viewmodel-savedstate/1.0.0/32a6c5006bb0f1315da92589f3598355b838c5cf/lifecycle-viewmodel-savedstate-1.0.0-sources.jar!/" />
++    </SOURCES>
++  </library>
++</component>
+\ No newline at end of file

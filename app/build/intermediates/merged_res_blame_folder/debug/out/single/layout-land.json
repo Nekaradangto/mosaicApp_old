@@ -1,0 +1,14 @@
+[
+    {
+        "merged": "C:\\AndroidStudio\\AndroidStudioProjects\\vision-quickstart\\app\\build\\intermediates\\incremental\\mergeDebugResources\\stripped.dir\\layout-land\\activity_vision_cameraxsource_demo.xml",
+        "source": "C:\\AndroidStudio\\AndroidStudioProjects\\vision-quickstart\\app\\src\\main\\res\\layout-land\\activity_vision_cameraxsource_demo.xml"
+    },
+    {
+        "merged": "C:\\AndroidStudio\\AndroidStudioProjects\\vision-quickstart\\app\\build\\intermediates\\incremental\\mergeDebugResources\\stripped.dir\\layout-land\\activity_vision_live_preview.xml",
+        "source": "C:\\AndroidStudio\\AndroidStudioProjects\\vision-quickstart\\app\\src\\main\\res\\layout-land\\activity_vision_live_preview.xml"
+    },
+    {
+        "merged": "C:\\AndroidStudio\\AndroidStudioProjects\\vision-quickstart\\app\\build\\intermediates\\incremental\\mergeDebugResources\\stripped.dir\\layout-land\\activity_vision_camerax_live_preview.xml",
+        "source": "C:\\AndroidStudio\\AndroidStudioProjects\\vision-quickstart\\app\\src\\main\\res\\layout-land\\activity_vision_camerax_live_preview.xml"
+    }
+]
